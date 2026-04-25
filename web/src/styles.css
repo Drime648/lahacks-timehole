@@ -57,14 +57,25 @@ textarea {
 .panel,
 .side-panel,
 .suggestions,
-.hero-meta {
+.hero-meta,
+.panel-stack,
+.wizard-steps {
   display: grid;
   gap: 16px;
 }
 
-.content-grid {
+.tabs-shell,
+.wizard-shell {
   display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
+  gap: 20px;
+}
+
+.tabs-shell {
+  grid-template-columns: 280px 1fr;
+}
+
+.wizard-shell {
+  grid-template-columns: 320px 1fr;
   gap: 20px;
 }
 
@@ -78,6 +89,78 @@ textarea {
 
 .full-width {
   grid-column: 1 / -1;
+}
+
+.tabs-nav,
+.wizard-steps {
+  padding: 18px;
+  align-content: start;
+}
+
+.tab-button {
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.tab-button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.wizard-step {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.wizard-step.active {
+  border-color: rgba(21, 118, 92, 0.35);
+  background: rgba(21, 118, 92, 0.1);
+}
+
+.wizard-step.complete .wizard-index {
+  background: var(--accent);
+  color: white;
+}
+
+.wizard-step p,
+.panel-copy p,
+.wizard-panel p,
+.save-row p,
+.suggestions-copy p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.wizard-index {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+}
+
+.wizard-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.wizard-actions > * {
+  min-width: 140px;
 }
 
 .panel {
@@ -170,7 +253,9 @@ button[type="submit"] {
 
 .schedule-block,
 .schedule-card,
-.prompt-box {
+.prompt-box,
+.panel-copy,
+.suggestions-layout {
   display: grid;
   gap: 14px;
 }
@@ -224,10 +309,23 @@ button[type="submit"] {
   align-content: start;
 }
 
+.suggestions-layout {
+  grid-template-columns: 220px 1fr;
+  align-items: start;
+}
+
 .suggestion-chip {
   text-align: left;
   background: rgba(21, 118, 92, 0.12);
   color: var(--accent-strong);
+}
+
+.empty-state {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.52);
 }
 
 .prompt-box pre {
@@ -267,14 +365,24 @@ button[type="submit"] {
 @media (max-width: 980px) {
   .auth-card,
   .hero,
-  .content-grid,
+  .tabs-shell,
+  .wizard-shell,
   .time-grid,
   .category-grid,
-  .meta-strip {
+  .meta-strip,
+  .suggestions-layout {
     grid-template-columns: 1fr;
   }
 
   .day-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .wizard-actions,
+  .save-row,
+  .schedule-header,
+  .schedule-top {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

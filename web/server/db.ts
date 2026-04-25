@@ -17,6 +17,11 @@ export async function initDb(): Promise<void> {
   }
 
   await client.connect();
+  const indexes = await usersCollection().indexes();
+  const hasLegacyEmailIndex = indexes.some((index) => index.name === "email_1");
+  if (hasLegacyEmailIndex) {
+    await usersCollection().dropIndex("email_1");
+  }
   await usersCollection().createIndex({ username: 1 }, { unique: true });
   initialized = true;
 }

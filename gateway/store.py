@@ -3,9 +3,13 @@ from __future__ import annotations
 import logging
 import os
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from pymongo import MongoClient
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB_NAME = os.environ.get("MONGODB_DB_NAME", "timehole")
@@ -16,6 +20,14 @@ def normalize_blacklist(blacklist: Any) -> list[str]:
         return []
 
     return [str(entry).lower() for entry in blacklist]
+
+
+def candidate_source_ips(source_ip: str) -> list[str]:
+    normalized = source_ip.strip()
+    loopback_aliases = ["127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "localhost"]
+    if normalized in loopback_aliases:
+        return loopback_aliases
+    return [normalized]
 
 
 class MongoGatewayStore:
@@ -48,7 +60,7 @@ class MongoGatewayStore:
 
         try:
             user = self.users_collection.find_one(
-                {"focusConfig.sourceIp": source_ip},
+                {"focusConfig.sourceIp": {"$in": candidate_source_ips(source_ip)}},
                 {"focusConfig.blacklist": 1, "username": 1},
             )
         except Exception:
@@ -67,7 +79,7 @@ class MongoGatewayStore:
 
         try:
             return self.users_collection.find_one(
-                {"focusConfig.sourceIp": source_ip},
+                {"focusConfig.sourceIp": {"$in": candidate_source_ips(source_ip)}},
                 {
                     "username": 1,
                     "focusConfig.blacklist": 1,

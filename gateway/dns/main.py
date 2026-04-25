@@ -6,7 +6,7 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from gateway.proxy.server import serve
+from gateway.dns.relay import serve
 
 
 if __name__ == "__main__":

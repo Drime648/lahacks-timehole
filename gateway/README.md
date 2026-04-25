@@ -20,10 +20,10 @@ Blocked domains are blackholed by returning `0.0.0.0` for `A` requests and `::` 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r gateway/requirements.txt
-export MONGODB_URI="mongodb+srv://..."
-export MONGODB_DB_NAME="timehole"
-python3 gateway/dns/dns.py
+python3 gateway/dns/main.py
 ```
+
+The gateway automatically loads `gateway/.env`, so `MONGODB_URI` and `MONGODB_DB_NAME` do not need to be exported manually unless you want to override them for a shell session.
 
 ## Test
 

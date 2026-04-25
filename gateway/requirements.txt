@@ -1,3 +1,4 @@
 dnslib==0.9.24
 pymongo==4.15.0
 cryptography==45.0.7
+python-dotenv==1.1.1

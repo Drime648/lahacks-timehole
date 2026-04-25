@@ -51,6 +51,7 @@ export interface DnsLogDocument {
   answers?: string[];
   upstreamLatencyMs?: number | null;
   error?: string | null;
+  gemmaResponse?: string | null;
   createdAt: string;
 }
 
@@ -67,6 +68,7 @@ export interface ProxyLogDocument {
   blocked: boolean;
   cacheHit: boolean;
   decisionReason?: string;
+  gemmaResponse?: string | null;
   statusCode?: number | null;
   upstreamLatencyMs?: number | null;
   httpsTunnel?: boolean;

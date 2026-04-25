@@ -10,7 +10,12 @@ from gateway.proxy.filtering import (
     is_proxy_filtering_active,
     normalize_http_target,
 )
-from gateway.proxy.server import build_block_page, build_llm_cache_key
+from gateway.proxy.server import (
+    SlidingWindowRateLimiter,
+    build_block_page,
+    build_llm_cache_key,
+    should_log_proxy_event,
+)
 
 
 class FrozenDateTime(real_datetime):
@@ -75,6 +80,30 @@ def test_is_likely_main_document_request_rejects_fetch_api_calls():
     assert not is_likely_main_document_request(
         method="GET",
         path="https://example.com/api/feed",
+        headers={
+            "Accept": "application/json",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+        },
+    )
+
+
+def test_is_likely_main_document_request_accepts_reddit_spa_content_fetch():
+    assert is_likely_main_document_request(
+        method="GET",
+        path="https://www.reddit.com/r/gaming",
+        headers={
+            "Accept": "*/*",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+        },
+    )
+
+
+def test_is_likely_main_document_request_rejects_reddit_json_api_fetch():
+    assert not is_likely_main_document_request(
+        method="GET",
+        path="https://www.reddit.com/api/morechildren",
         headers={
             "Accept": "application/json",
             "Sec-Fetch-Mode": "cors",
@@ -264,6 +293,29 @@ def test_build_llm_cache_key_includes_html_metadata():
 
     assert build_llm_cache_key(base_payload) == build_llm_cache_key({**base_payload})
     assert build_llm_cache_key(base_payload) != build_llm_cache_key(changed_payload)
+
+
+def test_sliding_window_rate_limiter_caps_calls_within_window():
+    limiter = SlidingWindowRateLimiter(max_calls=2, window_seconds=60)
+
+    assert limiter.allow(now=0) is True
+    assert limiter.allow(now=10) is True
+    assert limiter.allow(now=20) is False
+    assert limiter.allow(now=61) is True
+
+
+def test_proxy_logs_only_llm_decision_events():
+    assert should_log_proxy_event("gemma_url_allowed")
+    assert should_log_proxy_event("gemma_url_blocked")
+    assert should_log_proxy_event("gemma_html_allowed")
+    assert should_log_proxy_event("gemma_html_blocked")
+    assert should_log_proxy_event("gemma_needs_html")
+
+    assert not should_log_proxy_event("focus_inactive")
+    assert not should_log_proxy_event("cache_allowed")
+    assert not should_log_proxy_event("cache_blocked")
+    assert not should_log_proxy_event("https_connect_passthrough")
+    assert not should_log_proxy_event("upstream_error")
 
 
 def test_evaluate_proxy_decision_defers_ambiguous_gemma_url_to_html():

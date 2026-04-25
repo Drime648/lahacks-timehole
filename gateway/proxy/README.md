@@ -9,11 +9,11 @@ Current behavior:
   - host
   - URL path
   - query string
-- only filters when the user's focus mode is active
+- filters when the user's focus mode is active or when the user is inside a configured focus calendar window
 - supports HTTPS `CONNECT`
 - performs HTTPS MITM interception using a locally generated TimeHole root CA
 - can inspect encrypted HTTPS request URLs once the CA is trusted in the browser
-- uses Gemma through the Gemini API for URL and HTML-response decisions
+- uses remote Gemma through the Gemini API for URL and HTML-response decisions
 - caches URL and HTML classifier results in memory by focus-config version
 - exposes the root CA download at `/__timehole/ca.crt`
 
@@ -39,7 +39,7 @@ or block decisions are cached by URL and focus config, so once Gemma approves or
 blocks a URL it does not need to run again until the cache expires or the focus
 config changes. Intermediate LLM outputs are also cached by payload hash.
 
-To use hosted Gemma through the Gemini API:
+To use remote Gemma through the Gemini API:
 
 ```bash
 export PROXY_ENABLE_GEMMA_CLASSIFIER=true

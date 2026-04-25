@@ -147,10 +147,6 @@ function formatDaySchedule(day: number, schedules: ScheduleWindow[]): string {
   return matches.map((entry) => `${entry.start}-${entry.end}`).join(", ");
 }
 
-function promptPreview(config: FocusConfig): string {
-  return `Given these categories that should be blocked: ${config.blockedCategories.join(", ") || "none"}, this user focus description: ${config.focusSummary || "(empty)"}, and this request data, is this on topic? Answer yes or no with a short reason.`;
-}
-
 function AuthScreen({
   mode,
   onModeChange,

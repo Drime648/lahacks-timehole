@@ -49,6 +49,24 @@ STATIC_ASSET_EXTENSIONS = (
     ".woff2",
 )
 
+SPA_CONTENT_HOSTS = {
+    "reddit.com",
+    "youtube.com",
+}
+
+SPA_CONTENT_PATH_PREFIXES = (
+    "/r/",
+    "/u/",
+    "/user/",
+    "/comments/",
+    "/search",
+    "/watch",
+    "/shorts/",
+    "/feed",
+    "/channel/",
+    "/@",
+)
+
 
 @dataclass(frozen=True)
 class ProxyPolicyDecision:
@@ -171,6 +189,7 @@ def is_likely_main_document_request(
         return False
 
     parsed = urlsplit(path)
+    normalized_host = (parsed.hostname or "").lower().removeprefix("www.")
     normalized_path = (parsed.path or "/").lower()
     if normalized_path.endswith(STATIC_ASSET_EXTENSIONS):
         return False
@@ -178,7 +197,16 @@ def is_likely_main_document_request(
     lowered_headers = {key.lower(): value for key, value in (headers or {}).items()}
     sec_fetch_dest = lowered_headers.get("sec-fetch-dest", "").strip().lower()
     if sec_fetch_dest and sec_fetch_dest not in {"document", "iframe", "frame"}:
-        return False
+        sec_fetch_mode = lowered_headers.get("sec-fetch-mode", "").strip().lower()
+        accept = lowered_headers.get("accept", "").lower()
+        if not (
+            sec_fetch_dest == "empty"
+            and sec_fetch_mode in {"cors", "same-origin"}
+            and normalized_host in SPA_CONTENT_HOSTS
+            and normalized_path.startswith(SPA_CONTENT_PATH_PREFIXES)
+            and "application/json" not in accept
+        ):
+            return False
 
     sec_fetch_mode = lowered_headers.get("sec-fetch-mode", "").strip().lower()
     if sec_fetch_mode == "navigate":
@@ -186,6 +214,15 @@ def is_likely_main_document_request(
 
     accept = lowered_headers.get("accept", "").lower()
     if "text/html" in accept or "application/xhtml+xml" in accept:
+        return True
+
+    if (
+        sec_fetch_dest == "empty"
+        and sec_fetch_mode in {"cors", "same-origin"}
+        and normalized_host in SPA_CONTENT_HOSTS
+        and normalized_path.startswith(SPA_CONTENT_PATH_PREFIXES)
+        and "application/json" not in accept
+    ):
         return True
 
     if accept and all(token not in accept for token in ("text/html", "application/xhtml+xml")):

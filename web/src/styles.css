@@ -626,6 +626,14 @@ button[type="submit"] {
   color: white;
 }
 
+.focus-mode-banner button {
+  padding: 12px 24px;
+  background: white;
+  color: #4f46e5;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .focus-mode-banner p {
   color: rgba(255, 255, 255, 0.9) !important;
 }

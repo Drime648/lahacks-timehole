@@ -300,8 +300,6 @@ def evaluate_proxy_decision(
     response_content_type: str | None = None,
     semantic_classifier: Callable[[dict[str, Any]], bool] | None = None,
 ) -> ProxyPolicyDecision:
-    blacklist = get_user_blacklist(user)
-
     if not is_proxy_filtering_active(user, now_provider=now_provider):
         return ProxyPolicyDecision(
             blocked=False,

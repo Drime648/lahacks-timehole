@@ -4,7 +4,7 @@ import type { BlockCategory, DnsDashboard, FocusConfig, ProxySetupInfo, Schedule
 
 const suggestionPrompts = [
   "I am a software engineer working on backend systems, APIs, debugging, and reading technical documentation. GitHub, docs, cloud dashboards, and Stack Overflow are usually on-topic.",
-  "I am studying computer science and focusing on assignments, research, and interview preparation. Entertainment and social apps are usually off-topic during focus time.",
+  "I am focused on computer science work like assignments, research, and interview preparation. Entertainment and social apps are usually off-topic during focus time.",
   "I work on startup/product tasks like design docs, coding, analytics, and customer research. Relevant tools and technical references should still count as productive.",
   "I am doing schoolwork and project building. Educational videos or specific communities may be helpful if they clearly relate to my current work."
 ];
@@ -28,7 +28,7 @@ const dayLabels = [
 ];
 
 const onboardingSteps = [
-  { id: "schedule", title: "Study Schedule" },
+  { id: "schedule", title: "Focus Calendar" },
   { id: "focus", title: "Focus Prompt" },
   { id: "categories", title: "Categories" },
   { id: "blacklist", title: "Manual Blacklist" },
@@ -471,7 +471,6 @@ function BlacklistEditor({
   return (
     <div className="panel-stack">
       <div className="panel-copy">
-        <h3>Manual blacklist</h3>
         <p>Add one blacklist entry per line for sites you always want blocked, like TikTok or Reddit.</p>
       </div>
       <label>
@@ -1187,28 +1186,25 @@ export function App() {
             {error ? <div className="error-banner">{error}</div> : null}
 
             <div className="wizard-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={saving}
-                onClick={() => {
-                  if (currentStep.id === "proxy") {
-                    setIsOnboarding(false);
-                    return;
-                  }
-
-                  if (currentStepIndex > 0) {
+              {currentStepIndex > 0 ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={saving}
+                  onClick={() => {
                     setActiveTab(onboardingSteps[currentStepIndex - 1].id);
-                  }
-                }}
-              >
-                {currentStep.id === "proxy" ? "Skip for now" : "Back"}
-              </button>
+                  }}
+                >
+                  Back
+                </button>
+              ) : (
+                <div />
+              )}
               <button type="submit" disabled={saving}>
                 {saving
                   ? "Saving..."
                   : currentStepIndex === onboardingSteps.length - 1
-                    ? "Finish setup"
+                    ? "Finish"
                     : "Next"}
               </button>
             </div>
@@ -1240,13 +1236,11 @@ export function App() {
                 {activeTab === "home" &&
                   "Your DNS relay metrics and recent DNS activity appear here by default."}
                 {activeTab === "schedule" &&
-                  "The previous main settings content now lives here under Study Schedule."}
+                  "The previous main settings content now lives here under Focus Calendar."}
                 {activeTab === "focus" &&
                   "Refine the paragraph that explains what productive work looks like for you."}
                 {activeTab === "categories" &&
                   "Adjust the categories that should be considered off-topic during focus time."}
-                {activeTab === "blacklist" &&
-                  "Update the manual site blacklist that uses substring matching."}
                 {activeTab === "proxy" &&
                   "Download the root CA, enable the browser proxy, and turn on HTTPS layer 7 inspection."}
               </p>

@@ -93,8 +93,10 @@ textarea {
 
 .tabs-nav,
 .wizard-steps {
+  display: grid;
   padding: 18px;
   align-content: start;
+  gap: 8px;
 }
 
 .tab-button {

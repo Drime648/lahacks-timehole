@@ -394,7 +394,7 @@ function FocusEditor({
       <div className="suggestions-layout">
         <div className="suggestions-copy">
           <h3>Prompt Suggestions</h3>
-          <p>Click a suggestion to append it into your focus description.</p>
+          <p>Click a suggestion to use it as your focus description.</p>
         </div>
         <div className="suggestions">
           {suggestionPrompts.map((suggestion) => (
@@ -405,9 +405,7 @@ function FocusEditor({
               onClick={() =>
                 setConfig({
                   ...config,
-                  focusSummary: config.focusSummary
-                    ? `${config.focusSummary}\n\n${suggestion}`
-                    : suggestion
+                  focusSummary: suggestion
                 })
               }
             >
@@ -842,27 +840,35 @@ function DashboardHome({
           <div className="empty-state">No recent DNS query log entries yet.</div>
         ) : (
           <div className="logs-list">
-            {dashboard.recentLogs.map((log, index) => (
-              <div className={`log-row ${log.blocked ? "blocked" : "allowed"}`} key={`${log.createdAt}-${index}`}>
-                <div className="log-row-top">
-                  <strong>{log.queryName}</strong>
-                  <span>{log.queryType}</span>
+            {dashboard.recentLogs.map((log, index) => {
+              const isExpanded = expandedLogs.has(index);
+              return (
+                <div
+                  className={`log-row ${log.blocked ? "blocked" : "allowed"} ${isExpanded ? "expanded" : ""}`}
+                  key={`${log.createdAt}-${index}`}
+                  onClick={() => toggleLogExpansion(index)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <div className="log-row-top">
+                    <strong className={isExpanded ? "" : "clamped"}>
+                      {log.queryName}
+                    </strong>
+                    <span>{log.queryType}</span>
+                  </div>
+                  <div className="log-row-meta-grid">
+                    <span className="status">{log.blocked ? "Blocked" : "Allowed"}</span>
+                    <span className="cache">{log.cacheHit ? "Cache hit" : "Cache miss"}</span>
+                    <span className="reason">{log.decisionReason || "n/a"}</span>
+                    <span className="code">{log.responseCode || "n/a"}</span>
+                    <span className="latency">{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs} ms` : "no upstream"}</span>
+                    <span className="timestamp">{new Date(log.createdAt).toLocaleString()}</span>
+                    <span className="user">{log.userMatched ? `user ${log.username}` : "no matched user"}</span>
+                    <span className="answers">{log.answerCount ?? 0} answers</span>
+                    <span className="details">{(log.answers || []).slice(0, 3).join(", ") || "no answers"}</span>
+                  </div>
                 </div>
-                <div className="log-row-meta">
-                  <span>{log.blocked ? "Blocked" : "Allowed"}</span>
-                  <span>{log.cacheHit ? "Cache hit" : "Cache miss"}</span>
-                  <span>{log.decisionReason || "n/a"}</span>
-                  <span>{log.responseCode || "n/a"}</span>
-                  <span>{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs} ms` : "no upstream"}</span>
-                </div>
-                <div className="log-row-meta">
-                  <span>{new Date(log.createdAt).toLocaleString()}</span>
-                  <span>{log.userMatched ? `user ${log.username}` : "no matched user"}</span>
-                  <span>{log.answerCount ?? 0} answers</span>
-                  <span>{(log.answers || []).slice(0, 3).join(", ") || "no answers"}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

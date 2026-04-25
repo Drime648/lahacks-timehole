@@ -456,14 +456,46 @@ button[type="submit"] {
 }
 
 .dashboard-panel,
-.metric-card,
-.log-row {
+.metric-card {
   padding: 16px;
   border-radius: 20px;
   border: 1px solid var(--line);
   background: var(--panel);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+
+.log-row {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: all 140ms ease;
+  cursor: pointer;
+}
+
+.log-row:hover {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: var(--accent);
+}
+
+.log-row-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px 16px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.log-row-meta-grid .details {
+  grid-column: 1 / -1;
+  color: var(--ink);
+  font-weight: 500;
+  margin-top: 4px;
 }
 
 .metric-card span {
@@ -567,6 +599,16 @@ button[type="submit"] {
 .log-row-top strong {
   overflow-wrap: anywhere;
   flex: 1;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  line-height: 1.5;
+  transition: all 200ms ease;
+}
+
+.log-row-top strong.clamped {
+  line-clamp: 3;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 
 .bar-track {

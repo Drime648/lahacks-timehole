@@ -24,3 +24,11 @@ export MONGODB_URI="mongodb+srv://..."
 export MONGODB_DB_NAME="timehole"
 python3 gateway/dns/dns.py
 ```
+
+## Test
+
+```bash
+source gateway/.venv/bin/activate
+pip install -r gateway/requirements.txt -r gateway/requirements-dev.txt
+pytest gateway/tests
+```

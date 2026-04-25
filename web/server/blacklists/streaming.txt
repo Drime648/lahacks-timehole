@@ -1,4 +1,3 @@
-youtube
 netflix
 hulu
 twitch

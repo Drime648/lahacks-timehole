@@ -43,6 +43,14 @@ class SourceIpCache:
     decisions: dict[str, CachedDecision] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class PolicyDecision:
+    blocked: bool
+    cache_hit: bool
+    decision_reason: str
+    blacklist_size: int
+
+
 decision_cache: dict[str, SourceIpCache] = {}
 
 
@@ -74,10 +82,7 @@ def get_blacklist_for_source_ip(source_ip: str) -> list[str]:
         return []
 
     blacklist = user.get("focusConfig", {}).get("blacklist", [])
-    if not isinstance(blacklist, list):
-        return []
-
-    return [str(entry).lower() for entry in blacklist]
+    return normalize_blacklist(blacklist)
 
 
 def get_user_context(source_ip: str) -> dict[str, Any] | None:
@@ -183,6 +188,13 @@ def cache_decision(source_ip: str, query_name: str, blocked: bool) -> None:
     )
 
 
+def normalize_blacklist(blacklist: Any) -> list[str]:
+    if not isinstance(blacklist, list):
+        return []
+
+    return [str(entry).lower() for entry in blacklist]
+
+
 def is_blocked(query_name: str, blacklist: list[str]) -> bool:
     return any(entry in query_name for entry in blacklist)
 
@@ -232,6 +244,63 @@ def is_filtering_active(user: dict[str, Any] | None) -> bool:
             return True
 
     return False
+
+
+def get_user_blacklist(user: dict[str, Any] | None) -> list[str]:
+    if user is None:
+        return []
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return []
+
+    return normalize_blacklist(focus_config.get("blacklist", []))
+
+
+def evaluate_policy_decision(
+    *,
+    source_ip: str,
+    query_name: str,
+    user: dict[str, Any] | None,
+    cached_blocked: bool | None,
+) -> PolicyDecision:
+    if not is_filtering_active(user):
+        return PolicyDecision(
+            blocked=False,
+            cache_hit=False,
+            decision_reason="focus_inactive",
+            blacklist_size=len(get_user_blacklist(user)),
+        )
+
+    if cached_blocked is not None:
+        return PolicyDecision(
+            blocked=cached_blocked,
+            cache_hit=True,
+            decision_reason="cache_blocked" if cached_blocked else "cache_allowed",
+            blacklist_size=len(get_user_blacklist(user)),
+        )
+
+    blacklist = (
+        get_user_blacklist(user)
+        if user is not None
+        else get_blacklist_for_source_ip(source_ip)
+    )
+    blocked = is_blocked(query_name, blacklist)
+    cache_decision(source_ip, query_name, blocked)
+
+    if blocked:
+        decision_reason = "blacklist_match"
+    elif user is None:
+        decision_reason = "no_user_config"
+    else:
+        decision_reason = "allowed_no_match"
+
+    return PolicyDecision(
+        blocked=blocked,
+        cache_hit=False,
+        decision_reason=decision_reason,
+        blacklist_size=len(blacklist),
+    )
 
 
 def build_blackhole_response(request: DNSRecord, query_name: str, qtype: str) -> bytes:
@@ -314,26 +383,24 @@ def serve() -> None:
                 cached_blocked = get_cached_decision(source_ip, query_name)
                 user = get_user_context(source_ip)
                 username = str(user.get("username")) if user and user.get("username") else None
-                user_blacklist = (
-                    [str(entry).lower() for entry in user.get("focusConfig", {}).get("blacklist", [])]
-                    if user
-                    else []
+                policy = evaluate_policy_decision(
+                    source_ip=source_ip,
+                    query_name=query_name,
+                    user=user,
+                    cached_blocked=cached_blocked,
                 )
-                blacklist_size = len(user_blacklist)
-                filtering_active = is_filtering_active(user)
-                if not filtering_active:
-                    blocked = False
-                    cache_hit = False
-                    decision_reason = "focus_inactive"
+                blocked = policy.blocked
+                cache_hit = policy.cache_hit
+                decision_reason = policy.decision_reason
+                blacklist_size = policy.blacklist_size
+
+                if decision_reason == "focus_inactive":
                     logging.info(
                         "Focus inactive for %s from source ip %s; bypassing blacklist",
                         query_name,
                         source_ip,
                     )
                 elif cached_blocked is not None:
-                    blocked = cached_blocked
-                    cache_hit = True
-                    decision_reason = "cache_blocked" if blocked else "cache_allowed"
                     logging.info(
                         "Cache hit for %s from source ip %s: %s",
                         query_name,
@@ -341,26 +408,11 @@ def serve() -> None:
                         "blocked" if blocked else "allowed",
                     )
                 else:
-                    cache_hit = False
-                    blacklist = (
-                        user_blacklist
-                        if user is not None
-                        else get_blacklist_for_source_ip(source_ip)
-                    )
-                    blacklist_size = len(blacklist)
-                    blocked = is_blocked(query_name, blacklist)
-                    cache_decision(source_ip, query_name, blocked)
-                    if blocked:
-                        decision_reason = "blacklist_match"
-                    elif user is None:
-                        decision_reason = "no_user_config"
-                    else:
-                        decision_reason = "allowed_no_match"
                     logging.info(
                         "Cache miss for %s from source ip %s; evaluated against %s blacklist entries",
                         query_name,
                         source_ip,
-                        len(blacklist),
+                        blacklist_size,
                     )
 
                 if blocked:

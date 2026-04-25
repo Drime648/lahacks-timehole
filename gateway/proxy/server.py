@@ -105,6 +105,64 @@ def write_raw_response(
     stream.flush()
 
 
+def build_block_page(target_url: str, reason: str) -> bytes:
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Back On Task</title>
+    <style>
+      body {{
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: linear-gradient(180deg, #fff8ef 0%, #f5ead8 100%);
+        color: #1c241f;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        padding: 24px;
+      }}
+      .card {{
+        max-width: 720px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(28, 36, 31, 0.12);
+        border-radius: 24px;
+        padding: 28px;
+        box-shadow: 0 18px 50px rgba(53, 36, 18, 0.1);
+      }}
+      h1 {{
+        margin: 0 0 12px;
+        font-size: 2rem;
+      }}
+      p {{
+        line-height: 1.65;
+        margin: 0 0 12px;
+      }}
+      code {{
+        display: block;
+        padding: 12px;
+        border-radius: 14px;
+        background: #10231c;
+        color: #d9f4e8;
+        overflow-wrap: anywhere;
+      }}
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Get back on task</h1>
+      <p>This page was blocked by the TimeHole web proxy because it looks off-target for your active focus session.</p>
+      <p>Decision: <strong>{reason}</strong></p>
+      <p>Blocked URL:</p>
+      <code>{target_url}</code>
+      <p>If you expected this to be allowed, check whether your proxy rules, focus settings, or current study mode need to be adjusted.</p>
+    </main>
+  </body>
+</html>"""
+    return html.encode("utf-8")
+
+
 def relay_http_response(handler: BaseHTTPRequestHandler, upstream_response: http.client.HTTPResponse) -> None:
     body = upstream_response.read()
     handler.send_response(upstream_response.status, upstream_response.reason)
@@ -142,6 +200,11 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
     server_version = "TimeHoleProxy/0.2"
 
     def do_CONNECT(self) -> None:
+        # A CONNECT request upgrades this socket into either a raw tunnel or a
+        # locally-terminated TLS session. After that completes, the original
+        # BaseHTTPRequestHandler connection should not be reused for another
+        # HTTP request cycle.
+        self.close_connection = True
         source_ip = self.client_address[0]
         authority = self.path.strip()
         host, port = parse_host_port(authority, 443)
@@ -249,9 +312,15 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         )
 
         if policy.blocked:
-            body = b"Blocked by TimeHole proxy."
+            body = build_block_page(target_url, policy.decision_reason)
+            logging.info(
+                "Blocked HTTP request for %s from source ip %s via reason=%s",
+                target_url,
+                source_ip,
+                policy.decision_reason,
+            )
             self.send_response(403, "Blocked by TimeHole proxy")
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             if self.command != "HEAD":
@@ -497,13 +566,19 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             )
 
             if policy.blocked:
-                blocked_body = b"Blocked by TimeHole proxy."
+                blocked_body = build_block_page(target_url, policy.decision_reason)
+                logging.info(
+                    "Blocked HTTPS request for %s from source ip %s via reason=%s",
+                    target_url,
+                    source_ip,
+                    policy.decision_reason,
+                )
                 write_raw_response(
                     writer,
                     status_code=403,
                     reason="Blocked by TimeHole proxy",
                     headers={
-                        "Content-Type": "text/plain; charset=utf-8",
+                        "Content-Type": "text/html; charset=utf-8",
                         "Content-Length": str(len(blocked_body)),
                         "Connection": "close",
                     },

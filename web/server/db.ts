@@ -1,5 +1,5 @@
 import { MongoClient, type Collection } from "mongodb";
-import type { DnsLogDocument, UserDocument } from "./types.js";
+import type { DnsLogDocument, ProxyLogDocument, UserDocument } from "./types.js";
 
 const mongoUri = process.env.MONGODB_URI;
 if (!mongoUri) {
@@ -24,6 +24,7 @@ export async function initDb(): Promise<void> {
   }
   await usersCollection().createIndex({ username: 1 }, { unique: true });
   await dnsLogsCollection().createIndex({ sourceIp: 1, createdAt: -1 });
+  await proxyLogsCollection().createIndex({ sourceIp: 1, createdAt: -1 });
   initialized = true;
 }
 
@@ -33,4 +34,8 @@ export function usersCollection(): Collection<UserDocument> {
 
 export function dnsLogsCollection(): Collection<DnsLogDocument> {
   return client.db(dbName).collection<DnsLogDocument>("dns_logs");
+}
+
+export function proxyLogsCollection(): Collection<ProxyLogDocument> {
+  return client.db(dbName).collection<ProxyLogDocument>("proxy_logs");
 }

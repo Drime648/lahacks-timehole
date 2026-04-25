@@ -289,7 +289,7 @@ def test_evaluate_policy_decision_bypasses_when_focus_inactive(monkeypatch):
     )
 
 
-def test_evaluate_policy_decision_manual_blacklist_blocks_when_focus_inactive(monkeypatch):
+def test_evaluate_policy_decision_blacklist_waits_for_active_focus_window(monkeypatch):
     cached_calls = []
 
     result = evaluate_policy_decision(
@@ -310,12 +310,12 @@ def test_evaluate_policy_decision_manual_blacklist_blocks_when_focus_inactive(mo
     )
 
     assert result == PolicyDecision(
-        blocked=True,
+        blocked=False,
         cache_hit=False,
-        decision_reason="manual_blacklist_match",
+        decision_reason="focus_inactive",
         blacklist_size=1,
     )
-    assert cached_calls == [("10.0.0.3", "www.jetpunk.com", True)]
+    assert cached_calls == []
 
 
 def test_evaluate_policy_decision_uses_cached_block():
@@ -375,6 +375,35 @@ def test_evaluate_policy_decision_blocks_and_caches(monkeypatch):
     assert cached_calls == [("10.0.0.4", "api.reddit.com", True)]
 
 
+def test_evaluate_policy_decision_blocks_during_scheduled_focus_window(monkeypatch):
+    cached_calls = []
+
+    result = evaluate_policy_decision(
+        source_ip="10.0.0.4",
+        query_name="www.jetpunk.com",
+        user={
+            "focusConfig": {
+                "studyModeEnabled": False,
+                "timezone": "America/Los_Angeles",
+                "schedules": [{"days": [1], "start": "09:00", "end": "11:00"}],
+                "blacklist": ["jetpunk"],
+            }
+        },
+        cached_blocked=None,
+        source_blacklist_loader=lambda source_ip: [],
+        cache_decision=lambda ip, query, blocked: cached_calls.append((ip, query, blocked)),
+        now_provider=lambda timezone_name: FrozenDateTime.now(),
+    )
+
+    assert result == PolicyDecision(
+        blocked=True,
+        cache_hit=False,
+        decision_reason="blacklist_match",
+        blacklist_size=1,
+    )
+    assert cached_calls == [("10.0.0.4", "www.jetpunk.com", True)]
+
+
 def test_evaluate_policy_decision_allows_and_caches(monkeypatch):
     cached_calls = []
 
@@ -396,7 +425,7 @@ def test_evaluate_policy_decision_allows_and_caches(monkeypatch):
     assert cached_calls == [("10.0.0.5", "docs.python.org", False)]
 
 
-def test_evaluate_policy_decision_without_user_uses_source_ip_blacklist(monkeypatch):
+def test_evaluate_policy_decision_without_user_allows(monkeypatch):
     cached_calls = []
 
     result = evaluate_policy_decision(
@@ -410,12 +439,12 @@ def test_evaluate_policy_decision_without_user_uses_source_ip_blacklist(monkeypa
     )
 
     assert result == PolicyDecision(
-        blocked=True,
+        blocked=False,
         cache_hit=False,
-        decision_reason="blacklist_match",
-        blacklist_size=1,
+        decision_reason="no_user_config",
+        blacklist_size=0,
     )
-    assert cached_calls == [("10.0.0.6", "game.roblox.com", True)]
+    assert cached_calls == []
 
 
 def test_build_blackhole_response_for_a_request():

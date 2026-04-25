@@ -120,7 +120,7 @@ def test_evaluate_proxy_decision_bypasses_when_focus_inactive():
     )
 
 
-def test_evaluate_proxy_decision_manual_blacklist_blocks_when_focus_inactive():
+def test_evaluate_proxy_decision_blacklist_waits_for_active_focus_window():
     cached_calls = []
 
     result = evaluate_proxy_decision(
@@ -144,12 +144,12 @@ def test_evaluate_proxy_decision_manual_blacklist_blocks_when_focus_inactive():
     )
 
     assert result == ProxyPolicyDecision(
-        blocked=True,
+        blocked=False,
         cache_hit=False,
-        decision_reason="manual_blacklist_match",
+        decision_reason="focus_inactive",
         blacklist_size=1,
     )
-    assert cached_calls == [("10.0.0.9", "https://www.jetpunk.com/quizzes", True)]
+    assert cached_calls == []
 
 
 def test_evaluate_proxy_decision_uses_cached_result():
@@ -193,6 +193,38 @@ def test_evaluate_proxy_decision_blocks_mongodb_blacklisted_url():
         blacklist_size=1,
     )
     assert cached_calls == [("10.0.0.9", "http://reddit.com/r/all", True)]
+
+
+def test_evaluate_proxy_decision_blocks_during_scheduled_focus_window():
+    cached_calls = []
+
+    result = evaluate_proxy_decision(
+        source_ip="10.0.0.9",
+        target_url="https://www.jetpunk.com/quizzes",
+        path="/quizzes",
+        query="",
+        user={
+            "focusConfig": {
+                "studyModeEnabled": False,
+                "timezone": "America/Los_Angeles",
+                "schedules": [{"days": [1], "start": "09:00", "end": "11:00"}],
+                "blacklist": ["jetpunk"],
+            }
+        },
+        cached_blocked=None,
+        cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
+            (source_ip, target_url, blocked)
+        ),
+        now_provider=lambda timezone_name: FrozenDateTime.now(),
+    )
+
+    assert result == ProxyPolicyDecision(
+        blocked=True,
+        cache_hit=False,
+        decision_reason="blacklist_match",
+        blacklist_size=1,
+    )
+    assert cached_calls == [("10.0.0.9", "https://www.jetpunk.com/quizzes", True)]
 
 
 def test_evaluate_proxy_decision_allows_clean_path():

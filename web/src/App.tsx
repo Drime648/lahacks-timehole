@@ -621,7 +621,7 @@ function DashboardHome({
                 : "Enable focus mode"}
           </button>
         </div>
-        <div className="empty-state">No DNS relay metrics yet for this source IP.</div>
+        <div className="empty-state">No gateway metrics yet for this source IP.</div>
       </div>
     );
   }
@@ -644,15 +644,15 @@ function DashboardHome({
 
       <div className="metrics-grid">
         <div className="metric-card">
-          <span>Total DNS queries</span>
+          <span>Total requests</span>
           <strong>{dashboard.totals.totalQueries}</strong>
         </div>
         <div className="metric-card">
-          <span>Blocked queries</span>
+          <span>Blocked requests</span>
           <strong>{dashboard.totals.blockedQueries}</strong>
         </div>
         <div className="metric-card">
-          <span>Allowed queries</span>
+          <span>Allowed requests</span>
           <strong>{dashboard.totals.allowedQueries}</strong>
         </div>
         <div className="metric-card">
@@ -664,7 +664,7 @@ function DashboardHome({
           <strong>{(dashboard.totals.blockRate * 100).toFixed(0)}%</strong>
         </div>
         <div className="metric-card">
-          <span>Unique domains</span>
+          <span>Unique targets</span>
           <strong>{dashboard.totals.uniqueDomains}</strong>
         </div>
         <div className="metric-card">
@@ -680,8 +680,8 @@ function DashboardHome({
       <div className="dashboard-grid">
         <div className="dashboard-panel">
           <div className="panel-copy">
-            <h3>Top queried domains</h3>
-            <p>Most frequently requested domains for your source IP.</p>
+            <h3>Top DNS domains</h3>
+            <p>Most frequently requested DNS domains for your source IP.</p>
           </div>
           {dashboard.topQueriedDomains.length === 0 ? (
             <div className="empty-state">No DNS domains queried yet.</div>
@@ -915,6 +915,36 @@ export function App() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let cancelled = false;
+    async function refreshDashboard() {
+      try {
+        const nextDashboard = await getDnsDashboard();
+        if (!cancelled) {
+          setDashboard(nextDashboard);
+        }
+      } catch {
+        if (!cancelled) {
+          setDashboard(null);
+        }
+      }
+    }
+
+    void refreshDashboard();
+    const intervalId = window.setInterval(() => {
+      void refreshDashboard();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [user]);
 
   async function handleAuth(username: string, password: string) {
     setLoading(true);

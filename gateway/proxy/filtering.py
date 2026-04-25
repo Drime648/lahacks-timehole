@@ -149,7 +149,6 @@ def normalize_http_target(
 
 def should_block_url(target_url: str, blacklist: list[str]) -> bool:
     lowered_url = target_url.lower()
-    print(lowered_url)
     return any(entry in lowered_url for entry in blacklist)
 
 
@@ -243,15 +242,6 @@ def evaluate_proxy_decision(
     semantic_classifier: Callable[[dict[str, Any]], bool] | None = None,
 ) -> ProxyPolicyDecision:
     blacklist = get_user_blacklist(user)
-
-    if blacklist and should_block_url(target_url, blacklist):
-        cache_decision(source_ip, target_url, True)
-        return ProxyPolicyDecision(
-            blocked=True,
-            cache_hit=False,
-            decision_reason="manual_blacklist_match",
-            blacklist_size=len(blacklist),
-        )
 
     if not is_proxy_filtering_active(user, now_provider=now_provider):
         return ProxyPolicyDecision(

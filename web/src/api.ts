@@ -3,6 +3,7 @@ import type { DnsDashboard, FocusConfig, ProxySetupInfo, User } from "./types";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: "include",
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {})

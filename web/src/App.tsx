@@ -174,10 +174,6 @@ function AuthScreen({
         <div>
           <p className="eyebrow">TimeHole</p>
           <h1>Set up focus filtering with account-backed preferences.</h1>
-          <p className="lede">
-            Create an account to walk through your schedule, focus goals, blocked
-            categories, and manual blacklist, then save it all to MongoDB.
-          </p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
@@ -281,7 +277,6 @@ function ScheduleEditor({
         <div className="schedule-header">
           <div>
             <h3>Weekly Focus Calendar</h3>
-            <p>Click and drag down a day column to mark when filtering should be active.</p>
           </div>
           <button
             type="button"
@@ -380,7 +375,7 @@ function FocusEditor({
       <label>
         What do you want to focus on, and what do you want to stay away from?
         <textarea
-          rows={12}
+          rows={10}
           value={config.focusSummary}
           onChange={(event) => setConfig({ ...config, focusSummary: event.target.value })}
           placeholder="I want to focus on coursework, project work, and documentation. I want to stay away from social feeds, gaming, and casual browsing during work blocks..."
@@ -390,7 +385,6 @@ function FocusEditor({
       <div className="suggestions-layout">
         <div className="suggestions-copy">
           <h3>Prompt Suggestions</h3>
-          <p>Click a suggestion to use it as your focus description.</p>
         </div>
         <div className="suggestions">
           {suggestionPrompts.map((suggestion) => (
@@ -425,7 +419,6 @@ function CategoriesEditor({
     <div className="panel-stack">
       <div className="panel-copy">
         <h3>Choose categories to block during work time</h3>
-        <p>Select the types of browsing you want the future filtering system to treat as off-topic.</p>
       </div>
       <div className="category-grid">
         {categories.map((category) => (
@@ -459,9 +452,6 @@ function BlacklistEditor({
 }) {
   return (
     <div className="panel-stack">
-      <div className="panel-copy">
-        <p>Add one blacklist entry per line for sites you always want blocked, like TikTok or Reddit.</p>
-      </div>
       <label>
         Blacklist entries, one per line
         <textarea
@@ -756,7 +746,6 @@ function DashboardHome({
         <div className="focus-mode-banner">
           <div>
             <h3>Manual Focus Mode</h3>
-            <p>Turn filtering on immediately, even outside your calendar blocks.</p>
           </div>
           <button type="button" onClick={() => void onToggleFocusMode()} disabled={togglingFocusMode}>
             {togglingFocusMode
@@ -776,7 +765,6 @@ function DashboardHome({
       <div className="focus-mode-banner">
         <div>
           <h3>Manual Focus Mode</h3>
-          <p>{focusModeEnabled ? "Filtering is currently forced on." : "Filtering will only run during your focus calendar unless you manually enable it here."}</p>
         </div>
         <button type="button" onClick={() => void onToggleFocusMode()} disabled={togglingFocusMode}>
           {togglingFocusMode
@@ -810,7 +798,6 @@ function DashboardHome({
         <div className="dashboard-panel">
           <div className="panel-copy">
             <h3>Top DNS domains</h3>
-            <p>Most frequently requested DNS domains for your source IP.</p>
           </div>
           {dashboard.topQueriedDomains.length === 0 ? (
             <div className="empty-state">No DNS domains queried yet.</div>
@@ -839,7 +826,6 @@ function DashboardHome({
         <div className="dashboard-panel">
           <div className="panel-copy">
             <h3>Top blocked domains</h3>
-            <p>Most frequently blackholed DNS lookups for your current source IP.</p>
           </div>
           {dashboard.topBlockedDomains.length === 0 ? (
             <div className="empty-state">No blocked DNS domains yet.</div>
@@ -870,7 +856,6 @@ function DashboardHome({
         <div className="dashboard-panel">
           <div className="panel-copy">
             <h3>Decision breakdown</h3>
-            <p>Why the relay allowed, blocked, or failed each DNS request.</p>
           </div>
           {dashboard.decisionBreakdown.length === 0 ? (
             <div className="empty-state">No DNS decisions recorded yet.</div>
@@ -899,7 +884,6 @@ function DashboardHome({
         <div className="dashboard-panel">
           <div className="panel-copy">
             <h3>Recent hourly activity</h3>
-            <p>A simple recent timeline of DNS traffic and blocked volume.</p>
           </div>
           {dashboard.recentActivity.length === 0 ? (
             <div className="empty-state">No hourly DNS activity has been logged yet.</div>
@@ -933,7 +917,6 @@ function DashboardHome({
       <div className="dashboard-panel">
         <div className="panel-copy">
           <h3>Query type breakdown</h3>
-          <p>Distribution of DNS request types passing through the relay.</p>
         </div>
         {dashboard.queryTypeBreakdown.length === 0 ? (
           <div className="empty-state">No query types recorded yet.</div>
@@ -1203,13 +1186,7 @@ export function App() {
                 <span className="wizard-index">{index + 1}</span>
                 <div>
                   <strong>{step.title}</strong>
-                  <p>
-                    {step.id === "schedule" && "Choose when focus filtering should be active."}
-                    {step.id === "focus" && "Describe what you want to focus on and avoid."}
-                    {step.id === "categories" && "Select the types of content to block."}
-                    {step.id === "blacklist" && "Add exact site fragments to blackhole."}
-                    {step.id === "proxy" && "Optionally configure the browser proxy and HTTPS certificate."}
-                  </p>
+                  {step.id === "proxy" ? <p>Optionally configure the browser proxy and HTTPS certificate.</p> : null}
                 </div>
               </div>
             ))}
@@ -1302,18 +1279,9 @@ export function App() {
                     ? "Home"
                     : onboardingSteps.find((tab) => tab.id === activeTab)?.title}
                 </h2>
-                <p>
-                  {activeTab === "home" &&
-                    "Your DNS relay metrics and recent DNS activity appear here by default."}
-                  {activeTab === "schedule" &&
-                    "The previous main settings content now lives here under Focus Calendar."}
-                  {activeTab === "focus" &&
-                    "Refine the paragraph that explains what productive work looks like for you."}
-                  {activeTab === "categories" &&
-                    "Adjust the categories that should be considered off-topic during focus time."}
-                  {activeTab === "proxy" &&
-                    "Download the root CA, enable the browser proxy, and turn on HTTPS layer 7 inspection."}
-                </p>
+                {activeTab === "proxy" ? (
+                  <p>Download the root CA, enable the browser proxy, and turn on HTTPS layer 7 inspection.</p>
+                ) : null}
               </div>
             ) : null}
 
@@ -1343,7 +1311,6 @@ export function App() {
                   <div className="save-row">
                     <div>
                       <h3>Save changes</h3>
-                      <p>Saving updates your user document in MongoDB and refreshes the stored source IP from this request.</p>
                     </div>
                     <button type="submit" disabled={saving}>
                       {saving ? "Saving..." : "Save settings"}

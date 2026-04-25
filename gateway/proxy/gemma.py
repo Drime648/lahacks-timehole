@@ -29,7 +29,8 @@ class GeminiGemmaClassifier:
     def __init__(
         self,
         *,
-        api_key: str,
+        provider: str,
+        api_key: str | None,
         model: str,
         api_url: str,
         timeout_seconds: float,
@@ -39,6 +40,7 @@ class GeminiGemmaClassifier:
         top_p: float,
         top_k: int,
     ) -> None:
+        self.provider = provider
         self.api_key = api_key
         self.model = model
         self.api_url = api_url.rstrip("/")
@@ -51,18 +53,30 @@ class GeminiGemmaClassifier:
 
     @classmethod
     def from_env(cls) -> "GeminiGemmaClassifier | None":
+        provider = os.environ.get("GEMMA_API_PROVIDER", "ollama").strip().lower()
         api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
+        if provider == "gemini" and not api_key:
             return None
 
         return cls(
+            provider=provider,
             api_key=api_key,
-            model=os.environ.get("GEMMA_MODEL", "gemma-3-27b-it"),
+            model=os.environ.get(
+                "GEMMA_MODEL",
+                "gemma3:latest" if provider == "ollama" else "gemma-3-27b-it",
+            ),
             api_url=os.environ.get(
                 "GEMMA_API_URL",
-                "https://generativelanguage.googleapis.com/v1beta",
+                "http://127.0.0.1:11434/api/generate"
+                if provider == "ollama"
+                else "https://generativelanguage.googleapis.com/v1beta",
             ),
-            timeout_seconds=float(os.environ.get("GEMMA_TIMEOUT_SECONDS", "3")),
+            timeout_seconds=float(
+                os.environ.get(
+                    "GEMMA_TIMEOUT_SECONDS",
+                    "10" if provider == "ollama" else "3",
+                )
+            ),
             use_system_proxy=os.environ.get("GEMMA_USE_SYSTEM_PROXY", "false").lower() == "true",
             ca_bundle=os.environ.get("GEMMA_CA_BUNDLE"),
             temperature=float(os.environ.get("GEMMA_TEMPERATURE", "0")),
@@ -134,6 +148,53 @@ class GeminiGemmaClassifier:
         )
 
     def _generate_content(self, prompt: str) -> str:
+        if self.provider == "ollama":
+            return self._generate_ollama_content(prompt)
+
+        return self._generate_gemini_content(prompt)
+
+    def _generate_ollama_content(self, prompt: str) -> str:
+        request = urllib.request.Request(
+            url=self.api_url,
+            data=json.dumps(
+                {
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": self.temperature,
+                        "top_p": self.top_p,
+                        "top_k": self.top_k,
+                    },
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            error_body = error.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Ollama HTTP {error.code}: {error_body}") from error
+        except Exception as error:
+            raise RuntimeError(f"Ollama request failed: {error}") from error
+
+        try:
+            payload = json.loads(body)
+            text = str(payload.get("response", "")).strip()
+            if not text:
+                raise ValueError("Empty response text")
+            return text
+        except Exception as error:
+            logging.exception("Failed to parse Ollama response body")
+            raise RuntimeError(f"Ollama response parse failed: {error}") from error
+
+    def _generate_gemini_content(self, prompt: str) -> str:
+        if not self.api_key:
+            raise RuntimeError("GEMINI_API_KEY is required for the Gemini provider")
+
         request = urllib.request.Request(
             url=f"{self.api_url}/models/{self.model}:generateContent",
             data=json.dumps(

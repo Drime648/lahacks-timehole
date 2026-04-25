@@ -497,6 +497,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 blocked=False,
                 cache_hit=False,
                 decision_reason="mitm_handshake_error",
+                gemma_response=None,
                 status_code=502,
                 upstream_latency_ms=None,
                 https_tunnel=True,

@@ -310,7 +310,6 @@ function ScheduleEditor({
             <div className="schedule-day-column" key={day.value}>
               <div className="calendar-day-heading">
                 <strong>{day.label}</strong>
-                <span>{formatDaySchedule(day.value, normalizedSchedules)}</span>
               </div>
 
               {Array.from({ length: SLOT_COUNT }, (_, slot) => {
@@ -347,6 +346,15 @@ function ScheduleEditor({
           <span><i className="legend-swatch selected" /> Focus block</span>
           <span><i className="legend-swatch preview" /> Drag preview</span>
           <span><i className="legend-swatch remove" /> Drag over an existing block to remove it</span>
+        </div>
+
+        <div className="schedule-summary-list">
+          {dayLabels.map((day) => (
+            <div key={day.value} className="summary-row">
+              <strong>{day.label}</strong>
+              <span>{formatDaySchedule(day.value, normalizedSchedules)}</span>
+            </div>
+          ))}
         </div>
 
         {normalizedSchedules.length === 0 ? (

@@ -663,24 +663,8 @@ function DashboardHome({
           <strong>{dashboard.totals.allowedQueries}</strong>
         </div>
         <div className="metric-card">
-          <span>Cache hit rate</span>
-          <strong>{(dashboard.totals.cacheHitRate * 100).toFixed(0)}%</strong>
-        </div>
-        <div className="metric-card">
           <span>Block rate</span>
           <strong>{(dashboard.totals.blockRate * 100).toFixed(0)}%</strong>
-        </div>
-        <div className="metric-card">
-          <span>Unique targets</span>
-          <strong>{dashboard.totals.uniqueDomains}</strong>
-        </div>
-        <div className="metric-card">
-          <span>Avg upstream latency</span>
-          <strong>
-            {dashboard.totals.avgLatencyMs != null
-              ? `${dashboard.totals.avgLatencyMs} ms`
-              : "n/a"}
-          </strong>
         </div>
       </div>
 

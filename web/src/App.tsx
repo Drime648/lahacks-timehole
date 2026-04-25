@@ -1098,40 +1098,13 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <section className="hero card">
-        <div>
-          <p className="eyebrow">
-            {isOnboarding ? "New Account Setup" : "Authenticated Setup"}
-          </p>
-          <h1>
-            {isOnboarding
-              ? "Walk through your focus settings one step at a time."
-              : "Manage your focus settings."}
-          </h1>
-          <p className="lede">
-            Your saved settings include schedule windows, categories, blacklist
-            substrings, a focus summary for future LLM decisions, and your detected
-            source IP address.
-          </p>
-        </div>
-        <div className="hero-meta">
-          <div className="meta-box">
-            <span>Signed in as</span>
-            <strong>{user.username}</strong>
-          </div>
-          <div className="meta-box">
-            <span>Current source IP</span>
-            <strong>{config.sourceIp || "Unknown"}</strong>
-          </div>
-          <button className="secondary-button" type="button" onClick={handleLogout}>
-            Sign out
-          </button>
-        </div>
-      </section>
-
       {isOnboarding ? (
         <form className="wizard-shell" onSubmit={handleOnboardingNext}>
           <aside className="card wizard-steps">
+            <div className="meta-box" style={{ border: "none", background: "none", padding: "0 0 12px 0" }}>
+              <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
+              <strong style={{ fontSize: "0.8rem", opacity: 0.8 }}>{config.sourceIp}</strong>
+            </div>
             {onboardingSteps.map((step, index) => (
               <div
                 className={`wizard-step ${step.id === activeTab ? "active" : ""} ${index < currentStepIndex ? "complete" : ""}`}
@@ -1150,6 +1123,9 @@ export function App() {
                 </div>
               </div>
             ))}
+            <button className="secondary-button" type="button" onClick={handleLogout} style={{ marginTop: "12px" }}>
+              Sign out
+            </button>
           </aside>
 
           <section className="card panel wizard-panel">
@@ -1210,7 +1186,11 @@ export function App() {
       ) : (
         <form className="tabs-shell" onSubmit={handleSave}>
           <nav className="card tabs-nav" aria-label="Settings tabs">
-            {[{ id: "home", title: "Home" }, ...onboardingSteps].map((tab) => (
+            <div className="meta-box" style={{ border: "none", background: "none", padding: "0 0 12px 0" }}>
+              <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
+              <strong style={{ fontSize: "0.8rem", opacity: 0.8 }}>{config.sourceIp}</strong>
+            </div>
+            {[{ id: "home", title: "Home" } as const, ...onboardingSteps].map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -1220,6 +1200,9 @@ export function App() {
                 {tab.title}
               </button>
             ))}
+            <button className="secondary-button" type="button" onClick={handleLogout} style={{ marginTop: "auto", paddingTop: "12px" }}>
+              Sign out
+            </button>
           </nav>
 
           <section className="card panel tab-panel">

@@ -1,0 +1,22 @@
+.env
+.env.*
+.venv/
+*.pyc
+__pycache__/
+node_modules/
+dist/
+dist-server/
+.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/
+
+# Nested app envs and virtualenvs
+**/.env
+**/.env.*
+**/.venv/
+
+# Common editor / local files
+.idea/
+.vscode/

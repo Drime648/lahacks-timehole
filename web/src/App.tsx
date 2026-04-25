@@ -471,7 +471,6 @@ function BlacklistEditor({
   return (
     <div className="panel-stack">
       <div className="panel-copy">
-        <h3>Manual blacklist</h3>
         <p>Add one blacklist entry per line for sites you always want blocked, like TikTok or Reddit.</p>
       </div>
       <label>
@@ -1215,8 +1214,6 @@ export function App() {
                   "Refine the paragraph that explains what productive work looks like for you."}
                 {activeTab === "categories" &&
                   "Adjust the categories that should be considered off-topic during focus time."}
-                {activeTab === "blacklist" &&
-                  "Update the manual site blacklist that uses substring matching."}
                 {activeTab === "proxy" &&
                   "Download the root CA, enable the browser proxy, and turn on HTTPS layer 7 inspection."}
               </p>

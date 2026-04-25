@@ -351,37 +351,32 @@ app.get("/api/dns-dashboard", async (request, response) => {
     ])
     .toArray();
 
-  const recentLogs = await dnsLogsCollection()
+  const recentDnsLogs = await dnsLogsCollection()
     .find(sourceIpMatch, { projection: { _id: 0 } })
     .sort({ createdAt: -1 })
     .limit(50)
     .toArray();
-  const recentProxyLogs = await proxyLogsCollection()
+  const recentProxyLogsRaw = await proxyLogsCollection()
     .find(sourceIpMatch, { projection: { _id: 0 } })
     .sort({ createdAt: -1 })
     .limit(50)
     .toArray();
-  const combinedRecentLogs = [
-    ...recentLogs,
-    ...recentProxyLogs.map((log) => ({
-      sourceIp: log.sourceIp,
-      username: log.username,
-      userMatched: log.userMatched,
-      queryName: log.targetUrl || log.host,
-      queryType: log.method,
-      blocked: log.blocked,
-      cacheHit: log.cacheHit,
-      decisionReason: log.decisionReason,
-      responseCode: log.statusCode == null ? null : String(log.statusCode),
-      answerCount: [log.host].filter(Boolean).length,
-      answers: [log.host].filter(Boolean),
-      upstreamLatencyMs: log.upstreamLatencyMs,
-      error: log.error,
-      createdAt: log.createdAt
-    }))
-  ]
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
-    .slice(0, 50);
+  const recentProxyLogs = recentProxyLogsRaw.map((log) => ({
+    sourceIp: log.sourceIp,
+    username: log.username,
+    userMatched: log.userMatched,
+    queryName: log.targetUrl || log.host,
+    queryType: log.method,
+    blocked: log.blocked,
+    cacheHit: log.cacheHit,
+    decisionReason: log.decisionReason,
+    responseCode: log.statusCode == null ? null : String(log.statusCode),
+    answerCount: [log.host].filter(Boolean).length,
+    answers: [log.host].filter(Boolean),
+    upstreamLatencyMs: log.upstreamLatencyMs,
+    error: log.error,
+    createdAt: log.createdAt
+  }));
 
   response.json({
     sourceIp,
@@ -400,7 +395,8 @@ app.get("/api/dns-dashboard", async (request, response) => {
     queryTypeBreakdown,
     decisionBreakdown,
     recentActivity,
-    recentLogs: combinedRecentLogs
+    recentDnsLogs,
+    recentProxyLogs
   });
 });
 

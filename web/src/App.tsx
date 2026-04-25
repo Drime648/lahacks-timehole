@@ -594,32 +594,30 @@ function SettingsSection({
   );
 }
 
-function LogsView({
-  dashboard
+function LogsTable({
+  title,
+  description,
+  logs,
+  sortField,
+  sortOrder,
+  onSort,
+  expandedLogs,
+  onToggleExpansion,
+  idPrefix
 }: {
-  dashboard: DnsDashboard | null;
+  title: string;
+  description: string;
+  logs: DnsDashboardLog[];
+  sortField: string;
+  sortOrder: "asc" | "desc";
+  onSort: (field: any) => void;
+  expandedLogs: Set<string>;
+  onToggleExpansion: (id: string) => void;
+  idPrefix: string;
 }) {
-  const [expandedLogs, setExpandedLogs] = useState<Set<number>>(new Set());
-  const [sortField, setSortField] = useState<keyof DnsDashboardLog | "time">("createdAt");
-  const [sortOrder, setSortDirection] = useState<"asc" | "desc">("desc");
-
-  const toggleLogExpansion = (index: number) => {
-    const next = new Set(expandedLogs);
-    if (next.has(index)) {
-      next.delete(index);
-    } else {
-      next.add(index);
-    }
-    setExpandedLogs(next);
-  };
-
-  if (!dashboard) {
-    return <div className="empty-state">No gateway metrics yet for this source IP.</div>;
-  }
-
-  const sortedLogs = [...dashboard.recentLogs].sort((a, b) => {
-    let valA: any = sortField === "time" ? a.createdAt : a[sortField];
-    let valB: any = sortField === "time" ? b.createdAt : b[sortField];
+  const sortedLogs = [...logs].sort((a, b) => {
+    let valA: any = sortField === "time" ? a.createdAt : (a as any)[sortField];
+    let valB: any = sortField === "time" ? b.createdAt : (b as any)[sortField];
 
     if (valA == null) valA = "";
     if (valB == null) valB = "";
@@ -629,77 +627,138 @@ function LogsView({
     return 0;
   });
 
-  const handleSort = (field: keyof DnsDashboardLog | "time") => {
-    if (sortField === field) {
-      setSortDirection(sortOrder === "asc" ? "desc" : "asc");
+  return (
+    <div className="dashboard-panel logs-panel">
+      <div className="panel-copy">
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      {logs.length === 0 ? (
+        <div className="empty-state">No recent log entries for this category yet.</div>
+      ) : (
+        <div className="table-container">
+          <table className="logs-table">
+            <thead>
+              <tr>
+                <th onClick={() => onSort("time")}>Time {sortField === "time" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                <th onClick={() => onSort("queryType")}>Type {sortField === "queryType" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                <th onClick={() => onSort("queryName")}>Target {sortField === "queryName" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                <th onClick={() => onSort("username")}>User {sortField === "username" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                <th onClick={() => onSort("blocked")}>Status {sortField === "blocked" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                <th onClick={() => onSort("decisionReason")}>Reason {sortField === "decisionReason" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                <th onClick={() => onSort("upstreamLatencyMs")}>Reply {sortField === "upstreamLatencyMs" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedLogs.map((log, index) => {
+                const logId = `${idPrefix}-${log.createdAt}-${index}`;
+                const isExpanded = expandedLogs.has(logId);
+                return (
+                  <tr
+                    key={logId}
+                    className={`${log.blocked ? "blocked" : "allowed"} ${isExpanded ? "expanded" : ""}`}
+                    onClick={() => onToggleExpansion(logId)}
+                  >
+                    <td className="nowrap">{new Date(log.createdAt).toLocaleString()}</td>
+                    <td><span className="type-badge">{log.queryType}</span></td>
+                    <td className="domain-cell">
+                      <strong className={isExpanded ? "" : "clamped"}>{log.queryName}</strong>
+                      {isExpanded && log.answers && (
+                        <div className="answers-preview">
+                          {log.answers.slice(0, 5).map((a, i) => <div key={i}>{a}</div>)}
+                        </div>
+                      )}
+                    </td>
+                    <td>{log.userMatched ? log.username : "-"}</td>
+                    <td>
+                      <span className={`status-pill ${log.blocked ? "blocked" : "allowed"}`}>
+                        {log.blocked ? "Blocked" : "OK"}
+                      </span>
+                      <div className="sub-text">{log.cacheHit ? "(cache)" : "(forwarded)"}</div>
+                    </td>
+                    <td><span className="reason-text">{log.decisionReason || "n/a"}</span></td>
+                    <td>
+                      <div className="reply-code">HTTP {log.responseCode || "-"}</div>
+                      <div className="sub-text">{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs.toFixed(1)}ms` : "-"}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LogsView({
+  dashboard
+}: {
+  dashboard: DnsDashboard | null;
+}) {
+  const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
+  const [dnsSortField, setDnsSortField] = useState<string>("time");
+  const [dnsSortOrder, setDnsSortOrder] = useState<"asc" | "desc">("desc");
+  const [proxySortField, setProxySortField] = useState<string>("time");
+  const [proxySortOrder, setProxySortOrder] = useState<"asc" | "desc">("desc");
+
+  const toggleLogExpansion = (id: string) => {
+    const next = new Set(expandedLogs);
+    if (next.has(id)) {
+      next.delete(id);
     } else {
-      setSortField(field);
-      setSortDirection("desc");
+      next.add(id);
+    }
+    setExpandedLogs(next);
+  };
+
+  if (!dashboard) {
+    return <div className="empty-state">No gateway metrics yet for this source IP.</div>;
+  }
+
+  const handleDnsSort = (field: string) => {
+    if (dnsSortField === field) {
+      setDnsSortOrder(dnsSortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setDnsSortField(field);
+      setDnsSortOrder("desc");
+    }
+  };
+
+  const handleProxySort = (field: string) => {
+    if (proxySortField === field) {
+      setProxySortOrder(proxySortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setProxySortField(field);
+      setProxySortOrder("desc");
     }
   };
 
   return (
     <div className="panel-stack">
-      <div className="dashboard-panel logs-panel">
-        <div className="panel-copy">
-          <h3>Recent DNS query log</h3>
-          <p>Click on any column header to sort the data. Click a row to expand long URLs.</p>
-        </div>
-        {dashboard.recentLogs.length === 0 ? (
-          <div className="empty-state">No recent DNS query log entries yet.</div>
-        ) : (
-          <div className="table-container">
-            <table className="logs-table">
-              <thead>
-                <tr>
-                  <th onClick={() => handleSort("time")}>Time {sortField === "createdAt" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                  <th onClick={() => handleSort("queryType")}>Type {sortField === "queryType" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                  <th onClick={() => handleSort("queryName")}>Domain {sortField === "queryName" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                  <th onClick={() => handleSort("username")}>User {sortField === "username" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                  <th onClick={() => handleSort("blocked")}>Status {sortField === "blocked" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                  <th onClick={() => handleSort("decisionReason")}>Reason {sortField === "decisionReason" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                  <th onClick={() => handleSort("upstreamLatencyMs")}>Reply {sortField === "upstreamLatencyMs" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedLogs.map((log, index) => {
-                  const isExpanded = expandedLogs.has(index);
-                  return (
-                    <tr
-                      key={`${log.createdAt}-${index}`}
-                      className={`${log.blocked ? "blocked" : "allowed"} ${isExpanded ? "expanded" : ""}`}
-                      onClick={() => toggleLogExpansion(index)}
-                    >
-                      <td className="nowrap">{new Date(log.createdAt).toLocaleString()}</td>
-                      <td><span className="type-badge">{log.queryType}</span></td>
-                      <td className="domain-cell">
-                        <strong className={isExpanded ? "" : "clamped"}>{log.queryName}</strong>
-                        {isExpanded && log.answers && (
-                          <div className="answers-preview">
-                            {log.answers.slice(0, 5).map((a, i) => <div key={i}>{a}</div>)}
-                          </div>
-                        )}
-                      </td>
-                      <td>{log.userMatched ? log.username : "-"}</td>
-                      <td>
-                        <span className={`status-pill ${log.blocked ? "blocked" : "allowed"}`}>
-                          {log.blocked ? "Blocked" : "OK"}
-                        </span>
-                        <div className="sub-text">{log.cacheHit ? "(cache)" : "(forwarded)"}</div>
-                      </td>
-                      <td><span className="reason-text">{log.decisionReason || "n/a"}</span></td>
-                      <td>
-                        <div className="reply-code">HTTP {log.responseCode || "-"}</div>
-                        <div className="sub-text">{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs.toFixed(1)}ms` : "-"}</div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <LogsTable
+        title="DNS Traffic Logs"
+        description="Direct UDP/TCP DNS queries and block decisions for your source IP."
+        logs={dashboard.recentDnsLogs}
+        sortField={dnsSortField}
+        sortOrder={dnsSortOrder}
+        onSort={handleDnsSort}
+        expandedLogs={expandedLogs}
+        onToggleExpansion={toggleLogExpansion}
+        idPrefix="dns"
+      />
+      <LogsTable
+        title="Web Proxy Logs"
+        description="Layer 7 HTTP/HTTPS inspection and semantic filtering decisions."
+        logs={dashboard.recentProxyLogs}
+        sortField={proxySortField}
+        sortOrder={proxySortOrder}
+        onSort={handleProxySort}
+        expandedLogs={expandedLogs}
+        onToggleExpansion={toggleLogExpansion}
+        idPrefix="proxy"
+      />
     </div>
   );
 }

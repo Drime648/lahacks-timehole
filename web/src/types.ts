@@ -86,7 +86,8 @@ export interface DnsDashboard {
     total: number;
     blocked: number;
   }>;
-  recentLogs: DnsDashboardLog[];
+  recentDnsLogs: DnsDashboardLog[];
+  recentProxyLogs: DnsDashboardLog[];
 }
 
 export interface ProxySetupInfo {

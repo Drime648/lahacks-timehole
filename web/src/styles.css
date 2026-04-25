@@ -550,12 +550,23 @@ button[type="submit"] {
 }
 
 .bar-row-meta,
-.log-row-top,
 .log-row-meta {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.log-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.log-row-top strong {
+  overflow-wrap: anywhere;
+  flex: 1;
 }
 
 .bar-track {

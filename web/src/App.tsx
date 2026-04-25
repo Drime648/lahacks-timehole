@@ -612,6 +612,18 @@ function DashboardHome({
   onToggleFocusMode: () => Promise<void>;
   togglingFocusMode: boolean;
 }) {
+  const [expandedLogs, setExpandedLogs] = useState<Set<number>>(new Set());
+
+  const toggleLogExpansion = (index: number) => {
+    const next = new Set(expandedLogs);
+    if (next.has(index)) {
+      next.delete(index);
+    } else {
+      next.add(index);
+    }
+    setExpandedLogs(next);
+  };
+
   if (!dashboard) {
     return (
       <div className="panel-stack">

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { getCurrentUser, getDnsDashboard, getProxySetup, login, logout, register, saveConfig } from "./api";
-import type { BlockCategory, DnsDashboard, FocusConfig, ProxySetupInfo, ScheduleWindow, User } from "./types";
+import type { BlockCategory, DnsDashboard, DnsDashboardLog, FocusConfig, ProxySetupInfo, ScheduleWindow, User } from "./types";
 
 const suggestionPrompts = [
   "I am a software engineer working on backend systems, APIs, debugging, and reading technical documentation. GitHub, docs, cloud dashboards, and Stack Overflow are usually on-topic.",
@@ -36,7 +36,7 @@ const onboardingSteps = [
 ] as const;
 
 type SettingsTab = (typeof onboardingSteps)[number]["id"];
-type MainTab = "home" | SettingsTab;
+type MainTab = "home" | "logs" | SettingsTab;
 
 const SLOT_COUNT = 48;
 const SLOT_MINUTES = 30;
@@ -594,18 +594,14 @@ function SettingsSection({
   );
 }
 
-function DashboardHome({
-  dashboard,
-  focusModeEnabled,
-  onToggleFocusMode,
-  togglingFocusMode
+function LogsView({
+  dashboard
 }: {
   dashboard: DnsDashboard | null;
-  focusModeEnabled: boolean;
-  onToggleFocusMode: () => Promise<void>;
-  togglingFocusMode: boolean;
 }) {
   const [expandedLogs, setExpandedLogs] = useState<Set<number>>(new Set());
+  const [sortField, setSortField] = useState<keyof DnsDashboardLog | "time">("createdAt");
+  const [sortOrder, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const toggleLogExpansion = (index: number) => {
     const next = new Set(expandedLogs);
@@ -617,6 +613,108 @@ function DashboardHome({
     setExpandedLogs(next);
   };
 
+  if (!dashboard) {
+    return <div className="empty-state">No gateway metrics yet for this source IP.</div>;
+  }
+
+  const sortedLogs = [...dashboard.recentLogs].sort((a, b) => {
+    let valA: any = sortField === "time" ? a.createdAt : a[sortField];
+    let valB: any = sortField === "time" ? b.createdAt : b[sortField];
+
+    if (valA == null) valA = "";
+    if (valB == null) valB = "";
+
+    if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+    if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+    return 0;
+  });
+
+  const handleSort = (field: keyof DnsDashboardLog | "time") => {
+    if (sortField === field) {
+      setSortDirection(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDirection("desc");
+    }
+  };
+
+  return (
+    <div className="panel-stack">
+      <div className="dashboard-panel logs-panel">
+        <div className="panel-copy">
+          <h3>Recent DNS query log</h3>
+          <p>Click on any column header to sort the data. Click a row to expand long URLs.</p>
+        </div>
+        {dashboard.recentLogs.length === 0 ? (
+          <div className="empty-state">No recent DNS query log entries yet.</div>
+        ) : (
+          <div className="table-container">
+            <table className="logs-table">
+              <thead>
+                <tr>
+                  <th onClick={() => handleSort("time")}>Time {sortField === "createdAt" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                  <th onClick={() => handleSort("queryType")}>Type {sortField === "queryType" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                  <th onClick={() => handleSort("queryName")}>Domain {sortField === "queryName" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                  <th onClick={() => handleSort("username")}>User {sortField === "username" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                  <th onClick={() => handleSort("blocked")}>Status {sortField === "blocked" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                  <th onClick={() => handleSort("decisionReason")}>Reason {sortField === "decisionReason" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                  <th onClick={() => handleSort("upstreamLatencyMs")}>Reply {sortField === "upstreamLatencyMs" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedLogs.map((log, index) => {
+                  const isExpanded = expandedLogs.has(index);
+                  return (
+                    <tr
+                      key={`${log.createdAt}-${index}`}
+                      className={`${log.blocked ? "blocked" : "allowed"} ${isExpanded ? "expanded" : ""}`}
+                      onClick={() => toggleLogExpansion(index)}
+                    >
+                      <td className="nowrap">{new Date(log.createdAt).toLocaleString()}</td>
+                      <td><span className="type-badge">{log.queryType}</span></td>
+                      <td className="domain-cell">
+                        <strong className={isExpanded ? "" : "clamped"}>{log.queryName}</strong>
+                        {isExpanded && log.answers && (
+                          <div className="answers-preview">
+                            {log.answers.slice(0, 5).map((a, i) => <div key={i}>{a}</div>)}
+                          </div>
+                        )}
+                      </td>
+                      <td>{log.userMatched ? log.username : "-"}</td>
+                      <td>
+                        <span className={`status-pill ${log.blocked ? "blocked" : "allowed"}`}>
+                          {log.blocked ? "Blocked" : "OK"}
+                        </span>
+                        <div className="sub-text">{log.cacheHit ? "(cache)" : "(forwarded)"}</div>
+                      </td>
+                      <td><span className="reason-text">{log.decisionReason || "n/a"}</span></td>
+                      <td>
+                        <div className="reply-code">HTTP {log.responseCode || "-"}</div>
+                        <div className="sub-text">{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs.toFixed(1)}ms` : "-"}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DashboardHome({
+  dashboard,
+  focusModeEnabled,
+  onToggleFocusMode,
+  togglingFocusMode
+}: {
+  dashboard: DnsDashboard | null;
+  focusModeEnabled: boolean;
+  onToggleFocusMode: () => Promise<void>;
+  togglingFocusMode: boolean;
+}) {
   if (!dashboard) {
     return (
       <div className="panel-stack">
@@ -822,48 +920,6 @@ function DashboardHome({
                 </div>
               </div>
             ))}
-          </div>
-        )}
-      </div>
-
-      <div className="dashboard-panel">
-        <div className="panel-copy">
-          <h3>Recent DNS query log</h3>
-          <p>Pi-hole-style per-query detail for the most recent relay decisions.</p>
-        </div>
-        {dashboard.recentLogs.length === 0 ? (
-          <div className="empty-state">No recent DNS query log entries yet.</div>
-        ) : (
-          <div className="logs-list">
-            {dashboard.recentLogs.map((log, index) => {
-              const isExpanded = expandedLogs.has(index);
-              return (
-                <div
-                  className={`log-row ${log.blocked ? "blocked" : "allowed"} ${isExpanded ? "expanded" : ""}`}
-                  key={`${log.createdAt}-${index}`}
-                  onClick={() => toggleLogExpansion(index)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <div className="log-row-top">
-                    <strong className={isExpanded ? "" : "clamped"}>
-                      {log.queryName}
-                    </strong>
-                    <span>{log.queryType}</span>
-                  </div>
-                  <div className="log-row-meta-grid">
-                    <span className="status">Status: {log.blocked ? "Blocked" : "Allowed"}</span>
-                    <span className="cache">Cache: {log.cacheHit ? "hit" : "miss"}</span>
-                    <span className="reason">Reason: {log.decisionReason || "n/a"}</span>
-                    <span className="code">HTTP {log.responseCode || "n/a"}</span>
-                    <span className="latency">Latency: {log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs} ms` : "n/a"}</span>
-                    <span className="timestamp">Date: {new Date(log.createdAt).toLocaleString()}</span>
-                    <span className="user">User: {log.userMatched ? log.username : "none"}</span>
-                    <span className="answers">{log.answerCount ?? 0} {log.answerCount == 1 ? "answer" : "answers"}</span>
-                    <span className="details">Responses: {(log.answers || []).slice(0, 3).join(", ") || "none"}</span>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         )}
       </div>
@@ -1190,7 +1246,7 @@ export function App() {
               <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
               <strong style={{ fontSize: "0.8rem", opacity: 0.8 }}>{config.sourceIp}</strong>
             </div>
-            {[{ id: "home", title: "Home" } as const, ...onboardingSteps].map((tab) => (
+            {[{ id: "home", title: "Home" } as const, { id: "logs", title: "Logs" } as const, ...onboardingSteps].map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -1210,11 +1266,15 @@ export function App() {
               <h2>
                 {activeTab === "home"
                   ? "Home"
-                  : onboardingSteps.find((tab) => tab.id === activeTab)?.title}
+                  : activeTab === "logs"
+                    ? "Recent DNS query log"
+                    : onboardingSteps.find((tab) => tab.id === activeTab)?.title}
               </h2>
               <p>
                 {activeTab === "home" &&
                   "Your DNS relay metrics and recent DNS activity appear here by default."}
+                {activeTab === "logs" &&
+                  "Pi-hole-style per-query detail for the most recent relay decisions."}
                 {activeTab === "schedule" &&
                   "The previous main settings content now lives here under Focus Calendar."}
                 {activeTab === "focus" &&
@@ -1233,6 +1293,8 @@ export function App() {
                 onToggleFocusMode={handleToggleFocusMode}
                 togglingFocusMode={togglingFocusMode}
               />
+            ) : activeTab === "logs" ? (
+              <LogsView dashboard={dashboard} />
             ) : (
               <>
                 <SettingsSection

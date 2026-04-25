@@ -7,10 +7,15 @@ import os
 import select
 import socket
 import ssl
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from time import monotonic
 from typing import Final
 from urllib.parse import urlsplit
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from gateway.cache import DecisionCache
 from gateway.proxy.certificates import CertificateAuthorityManager

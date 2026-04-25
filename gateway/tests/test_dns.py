@@ -14,8 +14,8 @@ from gateway.dns.filtering import (
     normalize_blacklist,
     parse_time_to_minutes,
 )
-from gateway.store import MongoGatewayStore
-from gateway.dns import dns
+from gateway.store import MongoGatewayStore, candidate_source_ips
+from gateway.dns import relay as dns
 
 
 class FrozenDateTime(real_datetime):
@@ -123,6 +123,12 @@ def test_get_blacklist_for_source_ip_returns_normalized_blacklist(monkeypatch):
     assert result == ["reddit", "tiktok"]
 
 
+def test_candidate_source_ips_expands_loopback_aliases():
+    assert candidate_source_ips("127.0.0.1") == ["127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "localhost"]
+    assert candidate_source_ips("::1") == ["127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "localhost"]
+    assert candidate_source_ips("192.168.1.10") == ["192.168.1.10"]
+
+
 def test_get_blacklist_for_source_ip_handles_collection_errors():
     store = MongoGatewayStore(users_collection=FakeUsersCollection(error=RuntimeError("db down")))
 
@@ -144,6 +150,24 @@ def test_get_user_context_returns_matching_projection_result():
 
     assert result == expected
     assert fake_users.calls
+    query_filter = fake_users.calls[0][0][0]
+    assert query_filter == {"focusConfig.sourceIp": {"$in": ["10.0.0.2"]}}
+
+
+def test_get_user_context_uses_loopback_alias_query():
+    expected = {"username": "alice", "focusConfig": {"blacklist": ["reddit"]}}
+    fake_users = FakeUsersCollection(expected)
+    store = MongoGatewayStore(users_collection=fake_users)
+
+    result = store.get_user_context("127.0.0.1")
+
+    assert result == expected
+    query_filter = fake_users.calls[0][0][0]
+    assert query_filter == {
+        "focusConfig.sourceIp": {
+            "$in": ["127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "localhost"]
+        }
+    }
 
 
 def test_get_user_blacklist_returns_empty_for_invalid_focus_config():

@@ -3,10 +3,15 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import sys
+from pathlib import Path
 from time import monotonic
 from typing import Final
 
 from dnslib import A, AAAA, DNSHeader, DNSQuestion, DNSRecord, QTYPE, RR
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from gateway.cache import DecisionCache
 from gateway.dns.filtering import evaluate_policy_decision

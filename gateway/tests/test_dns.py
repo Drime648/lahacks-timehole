@@ -4,6 +4,17 @@ from datetime import datetime as real_datetime
 
 from dnslib import A, AAAA, DNSRecord, QTYPE, RR
 
+from gateway.cache import DecisionCache
+from gateway.filtering import (
+    PolicyDecision,
+    evaluate_policy_decision,
+    get_user_blacklist,
+    is_blocked,
+    is_filtering_active,
+    normalize_blacklist,
+    parse_time_to_minutes,
+)
+from gateway.store import MongoGatewayStore
 from gateway.dns import dns
 
 
@@ -57,96 +68,96 @@ def test_extract_query_name_normalizes_domain_and_type():
 
 
 def test_normalize_blacklist_handles_invalid_and_lowercases():
-    assert dns.normalize_blacklist(None) == []
-    assert dns.normalize_blacklist(["Reddit", "TikTok", 123]) == ["reddit", "tiktok", "123"]
+    assert normalize_blacklist(None) == []
+    assert normalize_blacklist(["Reddit", "TikTok", 123]) == ["reddit", "tiktok", "123"]
 
 
 def test_parse_time_to_minutes_parses_and_falls_back():
-    assert dns.parse_time_to_minutes("09:30") == 570
-    assert dns.parse_time_to_minutes("bad-input") == 0
+    assert parse_time_to_minutes("09:30") == 570
+    assert parse_time_to_minutes("bad-input") == 0
 
 
 def test_is_blocked_uses_substring_matching():
-    assert dns.is_blocked("api.reddit.com", ["reddit"])
-    assert not dns.is_blocked("docs.python.org", ["reddit"])
+    assert is_blocked("api.reddit.com", ["reddit"])
+    assert not is_blocked("docs.python.org", ["reddit"])
 
 
 def test_get_source_cache_returns_same_cache_for_same_ip():
-    dns.decision_cache.clear()
+    cache = DecisionCache(ttl_seconds=300)
 
-    first = dns.get_source_cache("10.0.0.1")
-    second = dns.get_source_cache("10.0.0.1")
+    first = cache.get_source_cache("10.0.0.1")
+    second = cache.get_source_cache("10.0.0.1")
 
     assert first is second
 
 
 def test_cache_decision_and_get_cached_decision(monkeypatch):
-    dns.decision_cache.clear()
+    cache = DecisionCache(ttl_seconds=300)
     fake_clock = {"value": 100.0}
-    monkeypatch.setattr(dns, "monotonic", lambda: fake_clock["value"])
+    monkeypatch.setattr("gateway.cache.monotonic", lambda: fake_clock["value"])
 
-    dns.cache_decision("10.0.0.1", "reddit.com", True)
+    cache.cache_decision("10.0.0.1", "reddit.com", True)
 
-    assert dns.get_cached_decision("10.0.0.1", "reddit.com") is True
+    assert cache.get_cached_decision("10.0.0.1", "reddit.com") is True
 
 
 def test_get_cached_decision_expires_and_cleans_up(monkeypatch):
-    dns.decision_cache.clear()
+    cache = DecisionCache(ttl_seconds=300)
     fake_clock = {"value": 100.0}
-    monkeypatch.setattr(dns, "monotonic", lambda: fake_clock["value"])
+    monkeypatch.setattr("gateway.cache.monotonic", lambda: fake_clock["value"])
 
-    dns.cache_decision("10.0.0.1", "reddit.com", False)
+    cache.cache_decision("10.0.0.1", "reddit.com", False)
     fake_clock["value"] = 1000.0
 
-    assert dns.get_cached_decision("10.0.0.1", "reddit.com") is None
-    assert "10.0.0.1" not in dns.decision_cache
+    assert cache.get_cached_decision("10.0.0.1", "reddit.com") is None
+    assert "10.0.0.1" not in cache.entries
 
 
 def test_get_blacklist_for_source_ip_returns_normalized_blacklist(monkeypatch):
-    monkeypatch.setattr(
-        dns,
-        "users_collection",
-        FakeUsersCollection({"focusConfig": {"blacklist": ["Reddit", "TikTok"]}}),
+    store = MongoGatewayStore(
+        users_collection=FakeUsersCollection({"focusConfig": {"blacklist": ["Reddit", "TikTok"]}})
     )
 
-    result = dns.get_blacklist_for_source_ip("10.0.0.2")
+    result = store.get_blacklist_for_source_ip("10.0.0.2")
 
     assert result == ["reddit", "tiktok"]
 
 
-def test_get_blacklist_for_source_ip_handles_collection_errors(monkeypatch):
-    monkeypatch.setattr(
-        dns,
-        "users_collection",
-        FakeUsersCollection(error=RuntimeError("db down")),
-    )
+def test_get_blacklist_for_source_ip_handles_collection_errors():
+    store = MongoGatewayStore(users_collection=FakeUsersCollection(error=RuntimeError("db down")))
 
-    assert dns.get_blacklist_for_source_ip("10.0.0.2") == []
+    assert store.get_blacklist_for_source_ip("10.0.0.2") == []
 
 
-def test_get_user_context_handles_collection_errors(monkeypatch):
-    monkeypatch.setattr(
-        dns,
-        "users_collection",
-        FakeUsersCollection(error=RuntimeError("db down")),
-    )
+def test_get_user_context_handles_collection_errors():
+    store = MongoGatewayStore(users_collection=FakeUsersCollection(error=RuntimeError("db down")))
 
-    assert dns.get_user_context("10.0.0.2") is None
+    assert store.get_user_context("10.0.0.2") is None
+
+
+def test_get_user_context_returns_matching_projection_result():
+    expected = {"username": "alice", "focusConfig": {"blacklist": ["reddit"]}}
+    fake_users = FakeUsersCollection(expected)
+    store = MongoGatewayStore(users_collection=fake_users)
+
+    result = store.get_user_context("10.0.0.2")
+
+    assert result == expected
+    assert fake_users.calls
 
 
 def test_get_user_blacklist_returns_empty_for_invalid_focus_config():
-    assert dns.get_user_blacklist(None) == []
-    assert dns.get_user_blacklist({"focusConfig": "invalid"}) == []
+    assert get_user_blacklist(None) == []
+    assert get_user_blacklist({"focusConfig": "invalid"}) == []
 
 
 def test_is_filtering_active_returns_true_when_study_mode_enabled():
     user = {"focusConfig": {"studyModeEnabled": True, "schedules": []}}
 
-    assert dns.is_filtering_active(user) is True
+    assert is_filtering_active(user) is True
 
 
 def test_is_filtering_active_uses_schedule_and_timezone(monkeypatch):
-    monkeypatch.setattr(dns, "datetime", FrozenDateTime)
     user = {
         "focusConfig": {
             "studyModeEnabled": False,
@@ -155,11 +166,16 @@ def test_is_filtering_active_uses_schedule_and_timezone(monkeypatch):
         }
     }
 
-    assert dns.is_filtering_active(user) is True
+    assert (
+        is_filtering_active(
+            user,
+            now_provider=lambda timezone_name: FrozenDateTime.now(),
+        )
+        is True
+    )
 
 
-def test_is_filtering_active_returns_false_outside_schedule(monkeypatch):
-    monkeypatch.setattr(dns, "datetime", FrozenDateTime)
+def test_is_filtering_active_returns_false_outside_schedule():
     user = {
         "focusConfig": {
             "studyModeEnabled": False,
@@ -168,11 +184,16 @@ def test_is_filtering_active_returns_false_outside_schedule(monkeypatch):
         }
     }
 
-    assert dns.is_filtering_active(user) is False
+    assert (
+        is_filtering_active(
+            user,
+            now_provider=lambda timezone_name: FrozenDateTime.now(),
+        )
+        is False
+    )
 
 
-def test_is_filtering_active_falls_back_when_timezone_invalid(monkeypatch):
-    monkeypatch.setattr(dns, "datetime", FrozenDateTime)
+def test_is_filtering_active_falls_back_when_timezone_invalid():
     user = {
         "focusConfig": {
             "studyModeEnabled": False,
@@ -181,20 +202,27 @@ def test_is_filtering_active_falls_back_when_timezone_invalid(monkeypatch):
         }
     }
 
-    assert dns.is_filtering_active(user) is True
+    assert (
+        is_filtering_active(
+            user,
+            now_provider=lambda timezone_name: FrozenDateTime.now(),
+        )
+        is True
+    )
 
 
 def test_evaluate_policy_decision_bypasses_when_focus_inactive(monkeypatch):
-    monkeypatch.setattr(dns, "is_filtering_active", lambda user: False)
-
-    result = dns.evaluate_policy_decision(
+    result = evaluate_policy_decision(
         source_ip="10.0.0.3",
         query_name="reddit.com",
         user={"focusConfig": {"blacklist": ["reddit"]}},
         cached_blocked=None,
+        source_blacklist_loader=lambda source_ip: [],
+        cache_decision=lambda source_ip, query_name, blocked: None,
+        now_provider=lambda timezone_name: real_datetime(2026, 4, 27, 1, 0),
     )
 
-    assert result == dns.PolicyDecision(
+    assert result == PolicyDecision(
         blocked=False,
         cache_hit=False,
         decision_reason="focus_inactive",
@@ -203,14 +231,16 @@ def test_evaluate_policy_decision_bypasses_when_focus_inactive(monkeypatch):
 
 
 def test_evaluate_policy_decision_uses_cached_block():
-    result = dns.evaluate_policy_decision(
+    result = evaluate_policy_decision(
         source_ip="10.0.0.3",
         query_name="reddit.com",
         user={"focusConfig": {"studyModeEnabled": True, "blacklist": ["reddit"]}},
         cached_blocked=True,
+        source_blacklist_loader=lambda source_ip: [],
+        cache_decision=lambda source_ip, query_name, blocked: None,
     )
 
-    assert result == dns.PolicyDecision(
+    assert result == PolicyDecision(
         blocked=True,
         cache_hit=True,
         decision_reason="cache_blocked",
@@ -219,14 +249,16 @@ def test_evaluate_policy_decision_uses_cached_block():
 
 
 def test_evaluate_policy_decision_uses_cached_allow():
-    result = dns.evaluate_policy_decision(
+    result = evaluate_policy_decision(
         source_ip="10.0.0.3",
         query_name="docs.python.org",
         user={"focusConfig": {"studyModeEnabled": True, "blacklist": ["reddit"]}},
         cached_blocked=False,
+        source_blacklist_loader=lambda source_ip: [],
+        cache_decision=lambda source_ip, query_name, blocked: None,
     )
 
-    assert result == dns.PolicyDecision(
+    assert result == PolicyDecision(
         blocked=False,
         cache_hit=True,
         decision_reason="cache_allowed",
@@ -236,16 +268,17 @@ def test_evaluate_policy_decision_uses_cached_allow():
 
 def test_evaluate_policy_decision_blocks_and_caches(monkeypatch):
     cached_calls = []
-    monkeypatch.setattr(dns, "cache_decision", lambda ip, query, blocked: cached_calls.append((ip, query, blocked)))
 
-    result = dns.evaluate_policy_decision(
+    result = evaluate_policy_decision(
         source_ip="10.0.0.4",
         query_name="api.reddit.com",
         user={"focusConfig": {"studyModeEnabled": True, "blacklist": ["reddit"]}},
         cached_blocked=None,
+        source_blacklist_loader=lambda source_ip: [],
+        cache_decision=lambda ip, query, blocked: cached_calls.append((ip, query, blocked)),
     )
 
-    assert result == dns.PolicyDecision(
+    assert result == PolicyDecision(
         blocked=True,
         cache_hit=False,
         decision_reason="blacklist_match",
@@ -256,16 +289,17 @@ def test_evaluate_policy_decision_blocks_and_caches(monkeypatch):
 
 def test_evaluate_policy_decision_allows_and_caches(monkeypatch):
     cached_calls = []
-    monkeypatch.setattr(dns, "cache_decision", lambda ip, query, blocked: cached_calls.append((ip, query, blocked)))
 
-    result = dns.evaluate_policy_decision(
+    result = evaluate_policy_decision(
         source_ip="10.0.0.5",
         query_name="docs.python.org",
         user={"focusConfig": {"studyModeEnabled": True, "blacklist": ["reddit"]}},
         cached_blocked=None,
+        source_blacklist_loader=lambda source_ip: [],
+        cache_decision=lambda ip, query, blocked: cached_calls.append((ip, query, blocked)),
     )
 
-    assert result == dns.PolicyDecision(
+    assert result == PolicyDecision(
         blocked=False,
         cache_hit=False,
         decision_reason="allowed_no_match",
@@ -275,19 +309,19 @@ def test_evaluate_policy_decision_allows_and_caches(monkeypatch):
 
 
 def test_evaluate_policy_decision_without_user_uses_source_ip_blacklist(monkeypatch):
-    monkeypatch.setattr(dns, "get_blacklist_for_source_ip", lambda source_ip: ["roblox"])
     cached_calls = []
-    monkeypatch.setattr(dns, "cache_decision", lambda ip, query, blocked: cached_calls.append((ip, query, blocked)))
-    monkeypatch.setattr(dns, "is_filtering_active", lambda user: True)
 
-    result = dns.evaluate_policy_decision(
+    result = evaluate_policy_decision(
         source_ip="10.0.0.6",
         query_name="game.roblox.com",
         user=None,
         cached_blocked=None,
+        source_blacklist_loader=lambda source_ip: ["roblox"],
+        cache_decision=lambda ip, query, blocked: cached_calls.append((ip, query, blocked)),
+        now_provider=lambda timezone_name: FrozenDateTime.now(),
     )
 
-    assert result == dns.PolicyDecision(
+    assert result == PolicyDecision(
         blocked=True,
         cache_hit=False,
         decision_reason="blacklist_match",
@@ -342,10 +376,10 @@ def test_summarize_response_handles_invalid_payload():
 
 def test_log_dns_event_inserts_document(monkeypatch):
     fake_logs = FakeLogsCollection()
-    monkeypatch.setattr(dns, "dns_logs_collection", fake_logs)
-    monkeypatch.setattr(dns, "datetime", FrozenDateTime)
+    store = MongoGatewayStore(dns_logs_collection=fake_logs)
+    monkeypatch.setattr("gateway.store.datetime", FrozenDateTime)
 
-    dns.log_dns_event(
+    store.log_dns_event(
         source_ip="10.0.0.7",
         username="alice",
         user_matched=True,
@@ -371,9 +405,9 @@ def test_log_dns_event_inserts_document(monkeypatch):
 
 
 def test_log_dns_event_swallows_write_errors(monkeypatch):
-    monkeypatch.setattr(dns, "dns_logs_collection", FakeLogsCollection(error=RuntimeError("write failed")))
+    store = MongoGatewayStore(dns_logs_collection=FakeLogsCollection(error=RuntimeError("write failed")))
 
-    dns.log_dns_event(
+    store.log_dns_event(
         source_ip="10.0.0.7",
         username="alice",
         user_matched=True,

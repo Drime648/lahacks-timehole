@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 import os
 import socket
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from time import monotonic
-from typing import Any, Final
-from zoneinfo import ZoneInfo
+from typing import Final
 
 from dnslib import A, AAAA, DNSHeader, DNSQuestion, DNSRecord, QTYPE, RR
-from pymongo import MongoClient
+
+from gateway.cache import DecisionCache
+from gateway.filtering import evaluate_policy_decision
+from gateway.store import MongoGatewayStore
 
 LISTEN_HOST: Final[str] = os.environ.get("DNS_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT: Final[int] = int(os.environ.get("DNS_PORT", "5354"))
@@ -23,35 +23,8 @@ MONGODB_URI: Final[str | None] = os.environ.get("MONGODB_URI")
 MONGODB_DB_NAME: Final[str] = os.environ.get("MONGODB_DB_NAME", "timehole")
 CACHE_TTL_SECONDS: Final[float] = float(os.environ.get("CACHE_TTL_SECONDS", "300"))
 
-mongo_client = MongoClient(MONGODB_URI) if MONGODB_URI else None
-users_collection = (
-    mongo_client[MONGODB_DB_NAME]["users"] if mongo_client is not None else None
-)
-dns_logs_collection = (
-    mongo_client[MONGODB_DB_NAME]["dns_logs"] if mongo_client is not None else None
-)
-
-
-@dataclass
-class CachedDecision:
-    blocked: bool
-    expires_at: float
-
-
-@dataclass
-class SourceIpCache:
-    decisions: dict[str, CachedDecision] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class PolicyDecision:
-    blocked: bool
-    cache_hit: bool
-    decision_reason: str
-    blacklist_size: int
-
-
-decision_cache: dict[str, SourceIpCache] = {}
+store = MongoGatewayStore.from_env()
+decision_cache = DecisionCache(ttl_seconds=CACHE_TTL_SECONDS)
 
 
 def extract_query_name(data: bytes) -> tuple[DNSRecord, str, str]:
@@ -63,244 +36,6 @@ def extract_query_name(data: bytes) -> tuple[DNSRecord, str, str]:
     qname = str(question.qname).rstrip(".").lower()
     qtype = QTYPE[question.qtype]
     return request, qname, qtype
-
-
-def get_blacklist_for_source_ip(source_ip: str) -> list[str]:
-    if users_collection is None:
-        return []
-
-    try:
-        user = users_collection.find_one(
-            {"focusConfig.sourceIp": source_ip},
-            {"focusConfig.blacklist": 1, "username": 1},
-        )
-    except Exception:
-        logging.exception("Failed to load blacklist for source ip %s", source_ip)
-        return []
-
-    if not user:
-        return []
-
-    blacklist = user.get("focusConfig", {}).get("blacklist", [])
-    return normalize_blacklist(blacklist)
-
-
-def get_user_context(source_ip: str) -> dict[str, Any] | None:
-    if users_collection is None:
-        return None
-
-    try:
-        return users_collection.find_one(
-            {"focusConfig.sourceIp": source_ip},
-            {
-                "username": 1,
-                "focusConfig.blacklist": 1,
-                "focusConfig.blockedCategories": 1,
-                "focusConfig.studyModeEnabled": 1,
-                "focusConfig.schedules": 1,
-                "focusConfig.timezone": 1,
-            },
-        )
-    except Exception:
-        logging.exception("Failed to load user context for source ip %s", source_ip)
-        return None
-
-
-def log_dns_event(
-    *,
-    source_ip: str,
-    username: str | None,
-    user_matched: bool,
-    query_name: str,
-    qtype: str,
-    blocked: bool,
-    cache_hit: bool,
-    decision_reason: str,
-    blacklist_size: int,
-    response_code: str | None,
-    answer_count: int,
-    answers: list[str],
-    upstream_latency_ms: float | None,
-    error: str | None,
-) -> None:
-    if dns_logs_collection is None:
-        return
-
-    try:
-        dns_logs_collection.insert_one(
-            {
-                "sourceIp": source_ip,
-                "username": username,
-                "userMatched": user_matched,
-                "queryName": query_name,
-                "queryType": qtype,
-                "blocked": blocked,
-                "cacheHit": cache_hit,
-                "decisionReason": decision_reason,
-                "blacklistSize": blacklist_size,
-                "responseCode": response_code,
-                "answerCount": answer_count,
-                "answers": answers,
-                "upstreamLatencyMs": upstream_latency_ms,
-                "error": error,
-                "createdAt": datetime.now(UTC).isoformat(),
-            }
-        )
-    except Exception:
-        logging.exception(
-            "Failed to write DNS log entry for %s from source ip %s",
-            query_name,
-            source_ip,
-        )
-
-
-def get_source_cache(source_ip: str) -> SourceIpCache:
-    cache = decision_cache.get(source_ip)
-    if cache is None:
-        cache = SourceIpCache()
-        decision_cache[source_ip] = cache
-    return cache
-
-
-def get_cached_decision(source_ip: str, query_name: str) -> bool | None:
-    cache = decision_cache.get(source_ip)
-    if cache is None:
-        return None
-
-    decision = cache.decisions.get(query_name)
-    if decision is None:
-        return None
-
-    if decision.expires_at <= monotonic():
-        del cache.decisions[query_name]
-        if not cache.decisions:
-            del decision_cache[source_ip]
-        return None
-
-    return decision.blocked
-
-
-def cache_decision(source_ip: str, query_name: str, blocked: bool) -> None:
-    cache = get_source_cache(source_ip)
-    cache.decisions[query_name] = CachedDecision(
-        blocked=blocked,
-        expires_at=monotonic() + CACHE_TTL_SECONDS,
-    )
-
-
-def normalize_blacklist(blacklist: Any) -> list[str]:
-    if not isinstance(blacklist, list):
-        return []
-
-    return [str(entry).lower() for entry in blacklist]
-
-
-def is_blocked(query_name: str, blacklist: list[str]) -> bool:
-    return any(entry in query_name for entry in blacklist)
-
-
-def parse_time_to_minutes(value: str) -> int:
-    try:
-        hours_raw, minutes_raw = value.split(":", 1)
-        return (int(hours_raw) * 60) + int(minutes_raw)
-    except Exception:
-        return 0
-
-
-def is_filtering_active(user: dict[str, Any] | None) -> bool:
-    if user is None:
-        return False
-
-    focus_config = user.get("focusConfig", {})
-    if not isinstance(focus_config, dict):
-        return False
-
-    if bool(focus_config.get("studyModeEnabled")):
-        return True
-
-    timezone_name = str(focus_config.get("timezone") or "America/Los_Angeles")
-    try:
-        now = datetime.now(ZoneInfo(timezone_name))
-    except Exception:
-        now = datetime.now()
-
-    current_day = (now.weekday() + 1) % 7
-    current_minutes = (now.hour * 60) + now.minute
-    schedules = focus_config.get("schedules", [])
-    if not isinstance(schedules, list):
-        return False
-
-    for schedule in schedules:
-        if not isinstance(schedule, dict):
-            continue
-
-        days = schedule.get("days", [])
-        if not isinstance(days, list) or current_day not in days:
-            continue
-
-        start_minutes = parse_time_to_minutes(str(schedule.get("start", "00:00")))
-        end_minutes = parse_time_to_minutes(str(schedule.get("end", "00:00")))
-        if start_minutes <= current_minutes < end_minutes:
-            return True
-
-    return False
-
-
-def get_user_blacklist(user: dict[str, Any] | None) -> list[str]:
-    if user is None:
-        return []
-
-    focus_config = user.get("focusConfig", {})
-    if not isinstance(focus_config, dict):
-        return []
-
-    return normalize_blacklist(focus_config.get("blacklist", []))
-
-
-def evaluate_policy_decision(
-    *,
-    source_ip: str,
-    query_name: str,
-    user: dict[str, Any] | None,
-    cached_blocked: bool | None,
-) -> PolicyDecision:
-    if not is_filtering_active(user):
-        return PolicyDecision(
-            blocked=False,
-            cache_hit=False,
-            decision_reason="focus_inactive",
-            blacklist_size=len(get_user_blacklist(user)),
-        )
-
-    if cached_blocked is not None:
-        return PolicyDecision(
-            blocked=cached_blocked,
-            cache_hit=True,
-            decision_reason="cache_blocked" if cached_blocked else "cache_allowed",
-            blacklist_size=len(get_user_blacklist(user)),
-        )
-
-    blacklist = (
-        get_user_blacklist(user)
-        if user is not None
-        else get_blacklist_for_source_ip(source_ip)
-    )
-    blocked = is_blocked(query_name, blacklist)
-    cache_decision(source_ip, query_name, blocked)
-
-    if blocked:
-        decision_reason = "blacklist_match"
-    elif user is None:
-        decision_reason = "no_user_config"
-    else:
-        decision_reason = "allowed_no_match"
-
-    return PolicyDecision(
-        blocked=blocked,
-        cache_hit=False,
-        decision_reason=decision_reason,
-        blacklist_size=len(blacklist),
-    )
 
 
 def build_blackhole_response(request: DNSRecord, query_name: str, qtype: str) -> bytes:
@@ -380,14 +115,16 @@ def serve() -> None:
                     logging.warning("Received DNS query without a question section")
                     continue
 
-                cached_blocked = get_cached_decision(source_ip, query_name)
-                user = get_user_context(source_ip)
+                cached_blocked = decision_cache.get_cached_decision(source_ip, query_name)
+                user = store.get_user_context(source_ip)
                 username = str(user.get("username")) if user and user.get("username") else None
                 policy = evaluate_policy_decision(
                     source_ip=source_ip,
                     query_name=query_name,
                     user=user,
                     cached_blocked=cached_blocked,
+                    source_blacklist_loader=store.get_blacklist_for_source_ip,
+                    cache_decision=decision_cache.cache_decision,
                 )
                 blocked = policy.blocked
                 cache_hit = policy.cache_hit
@@ -448,7 +185,7 @@ def serve() -> None:
                         error = str(relay_error)
                         decision_reason = "upstream_error"
 
-                log_dns_event(
+                store.log_dns_event(
                     source_ip=source_ip,
                     username=username,
                     user_matched=user is not None,

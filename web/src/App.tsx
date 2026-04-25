@@ -592,7 +592,6 @@ function SettingsSection({
 
 function LogsTable({
   title,
-  description,
   logs,
   sortField,
   sortOrder,
@@ -602,7 +601,6 @@ function LogsTable({
   idPrefix
 }: {
   title: string;
-  description: string;
   logs: DnsDashboardLog[];
   sortField: string;
   sortOrder: "asc" | "desc";
@@ -627,7 +625,6 @@ function LogsTable({
     <div className="dashboard-panel logs-panel">
       <div className="panel-copy">
         <h3>{title}</h3>
-        <p>{description}</p>
       </div>
       {logs.length === 0 ? (
         <div className="empty-state">No recent log entries for this category yet.</div>
@@ -640,8 +637,6 @@ function LogsTable({
                 <th onClick={() => onSort("queryType")}>Type {sortField === "queryType" && (sortOrder === "asc" ? "↑" : "↓")}</th>
                 <th onClick={() => onSort("queryName")}>Target {sortField === "queryName" && (sortOrder === "asc" ? "↑" : "↓")}</th>
                 <th onClick={() => onSort("blocked")}>Status {sortField === "blocked" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                <th onClick={() => onSort("gemmaResponse")}>Gemma {sortField === "gemmaResponse" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                <th onClick={() => onSort("upstreamLatencyMs")}>Latency {sortField === "upstreamLatencyMs" && (sortOrder === "asc" ? "↑" : "↓")}</th>
               </tr>
             </thead>
             <tbody>
@@ -663,11 +658,6 @@ function LogsTable({
                       <span className={`status-pill ${log.blocked ? "blocked" : "allowed"}`}>
                         {log.blocked ? "Blocked" : "OK"}
                       </span>
-                      <div className="sub-text">{log.cacheHit ? "(cache)" : "(forwarded)"}</div>
-                    </td>
-                    <td><span className="reason-text">{log.gemmaResponse || "-"}</span></td>
-                    <td>
-                      <div className="sub-text">{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs.toFixed(1)}ms` : "-"}</div>
                     </td>
                   </tr>
                 );
@@ -724,10 +714,9 @@ function LogsView({
   };
 
   return (
-    <div className="panel-stack">
+    <div className="logs-view">
       <LogsTable
         title="DNS Traffic Logs"
-        description="Direct UDP/TCP DNS queries and block decisions for your source IP."
         logs={dashboard.recentDnsLogs}
         sortField={dnsSortField}
         sortOrder={dnsSortOrder}
@@ -738,7 +727,6 @@ function LogsView({
       />
       <LogsTable
         title="Web Proxy Logs"
-        description="Layer 7 HTTP/HTTPS inspection and semantic filtering decisions."
         logs={dashboard.recentProxyLogs}
         sortField={proxySortField}
         sortOrder={proxySortOrder}
@@ -1206,7 +1194,6 @@ export function App() {
           <aside className="card wizard-steps">
             <div className="meta-box" style={{ border: "none", background: "none", padding: "0 0 12px 0" }}>
               <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
-              <strong style={{ fontSize: "0.8rem", opacity: 0.8 }}>{config.sourceIp}</strong>
             </div>
             {onboardingSteps.map((step, index) => (
               <div
@@ -1291,7 +1278,6 @@ export function App() {
           <nav className="card tabs-nav" aria-label="Settings tabs">
             <div className="meta-box" style={{ border: "none", background: "none", padding: "0 0 12px 0" }}>
               <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
-              <strong style={{ fontSize: "0.8rem", opacity: 0.8 }}>{config.sourceIp}</strong>
             </div>
             {[{ id: "home", title: "Home" } as const, { id: "logs", title: "Logs" } as const, ...onboardingSteps].map((tab) => (
               <button
@@ -1308,30 +1294,28 @@ export function App() {
             </button>
           </nav>
 
-          <section className="card panel tab-panel">
-            <div className="panel-header">
-              <h2>
-                {activeTab === "home"
-                  ? "Home"
-                  : activeTab === "logs"
-                    ? "Recent DNS query log"
+          <section className={`card panel tab-panel ${activeTab === "logs" ? "logs-tab-panel" : ""}`}>
+            {activeTab !== "logs" ? (
+              <div className="panel-header">
+                <h2>
+                  {activeTab === "home"
+                    ? "Home"
                     : onboardingSteps.find((tab) => tab.id === activeTab)?.title}
-              </h2>
-              <p>
-                {activeTab === "home" &&
-                  "Your DNS relay metrics and recent DNS activity appear here by default."}
-                {activeTab === "logs" &&
-                  "Pi-hole-style per-query detail for the most recent relay decisions."}
-                {activeTab === "schedule" &&
-                  "The previous main settings content now lives here under Focus Calendar."}
-                {activeTab === "focus" &&
-                  "Refine the paragraph that explains what productive work looks like for you."}
-                {activeTab === "categories" &&
-                  "Adjust the categories that should be considered off-topic during focus time."}
-                {activeTab === "proxy" &&
-                  "Download the root CA, enable the browser proxy, and turn on HTTPS layer 7 inspection."}
-              </p>
-            </div>
+                </h2>
+                <p>
+                  {activeTab === "home" &&
+                    "Your DNS relay metrics and recent DNS activity appear here by default."}
+                  {activeTab === "schedule" &&
+                    "The previous main settings content now lives here under Focus Calendar."}
+                  {activeTab === "focus" &&
+                    "Refine the paragraph that explains what productive work looks like for you."}
+                  {activeTab === "categories" &&
+                    "Adjust the categories that should be considered off-topic during focus time."}
+                  {activeTab === "proxy" &&
+                    "Download the root CA, enable the browser proxy, and turn on HTTPS layer 7 inspection."}
+                </p>
+              </div>
+            ) : null}
 
             {activeTab === "home" ? (
               <DashboardHome
@@ -1370,21 +1354,6 @@ export function App() {
             )}
 
             {error ? <div className="error-banner">{error}</div> : null}
-
-            <div className="meta-strip">
-              <div className="meta-box">
-                <span>Registered IP</span>
-                <strong>{user.registrationIp}</strong>
-              </div>
-              <div className="meta-box">
-                <span>Last login IP</span>
-                <strong>{user.lastLoginIp}</strong>
-              </div>
-              <div className="meta-box">
-                <span>Last updated</span>
-                <strong>{new Date(config.updatedAt).toLocaleString()}</strong>
-              </div>
-            </div>
           </section>
         </form>
       )}

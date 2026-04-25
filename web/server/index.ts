@@ -317,6 +317,39 @@ app.get("/api/dns-dashboard", async (request, response) => {
   });
 });
 
+app.get("/api/proxy-setup", async (request, response) => {
+  const user = await requireUser(request.session.username);
+  if (!user) {
+    response.status(401).json({ error: "Not authenticated." });
+    return;
+  }
+
+  const proxyHost = process.env.GATEWAY_PROXY_HOST || "127.0.0.1";
+  const proxyPort = Number(process.env.GATEWAY_PROXY_PORT || 8080);
+  const proxyBaseUrl = process.env.GATEWAY_PROXY_BASE_URL || `http://${proxyHost}:${proxyPort}`;
+  const caDownloadUrl = `${proxyBaseUrl}/__timehole/ca.crt`;
+
+  response.json({
+    proxyHost,
+    proxyPort,
+    proxyUrl: `${proxyHost}:${proxyPort}`,
+    caDownloadUrl,
+    mitmEnabled: true,
+    browserSteps: [
+      `Open your browser or OS network proxy settings.`,
+      `Set the HTTP proxy to ${proxyHost}:${proxyPort}.`,
+      `Set the HTTPS/SSL proxy to ${proxyHost}:${proxyPort}.`,
+      `Keep the proxy enabled while you want TimeHole to inspect web traffic.`
+    ],
+    certificateSteps: [
+      `Download the TimeHole root CA certificate.`,
+      `Import it into your browser or OS trust store.`,
+      `Mark it trusted for website identification.`,
+      `Restart the browser so HTTPS interception uses the newly trusted certificate.`
+    ]
+  });
+});
+
 app.put("/api/config", async (request, response) => {
   const user = await requireUser(request.session.username);
   if (!user) {

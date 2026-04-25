@@ -7,16 +7,27 @@ from typing import Any
 
 from pymongo import MongoClient
 
-from gateway.dns.filtering import normalize_blacklist
-
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB_NAME = os.environ.get("MONGODB_DB_NAME", "timehole")
 
 
+def normalize_blacklist(blacklist: Any) -> list[str]:
+    if not isinstance(blacklist, list):
+        return []
+
+    return [str(entry).lower() for entry in blacklist]
+
+
 class MongoGatewayStore:
-    def __init__(self, users_collection=None, dns_logs_collection=None):
+    def __init__(
+        self,
+        users_collection=None,
+        dns_logs_collection=None,
+        proxy_logs_collection=None,
+    ):
         self.users_collection = users_collection
         self.dns_logs_collection = dns_logs_collection
+        self.proxy_logs_collection = proxy_logs_collection
 
     @classmethod
     def from_env(cls) -> "MongoGatewayStore":
@@ -28,6 +39,7 @@ class MongoGatewayStore:
         return cls(
             users_collection=db["users"],
             dns_logs_collection=db["dns_logs"],
+            proxy_logs_collection=db["proxy_logs"],
         )
 
     def get_blacklist_for_source_ip(self, source_ip: str) -> list[str]:
@@ -114,5 +126,59 @@ class MongoGatewayStore:
             logging.exception(
                 "Failed to write DNS log entry for %s from source ip %s",
                 query_name,
+                source_ip,
+            )
+
+    def log_proxy_event(
+        self,
+        *,
+        source_ip: str,
+        username: str | None,
+        user_matched: bool,
+        method: str,
+        scheme: str,
+        host: str,
+        path: str,
+        query: str,
+        target_url: str,
+        blocked: bool,
+        cache_hit: bool,
+        decision_reason: str,
+        status_code: int | None,
+        upstream_latency_ms: float | None,
+        https_tunnel: bool,
+        mitm_enabled: bool,
+        error: str | None,
+    ) -> None:
+        if self.proxy_logs_collection is None:
+            return
+
+        try:
+            self.proxy_logs_collection.insert_one(
+                {
+                    "sourceIp": source_ip,
+                    "username": username,
+                    "userMatched": user_matched,
+                    "method": method,
+                    "scheme": scheme,
+                    "host": host,
+                    "path": path,
+                    "query": query,
+                    "targetUrl": target_url,
+                    "blocked": blocked,
+                    "cacheHit": cache_hit,
+                    "decisionReason": decision_reason,
+                    "statusCode": status_code,
+                    "upstreamLatencyMs": upstream_latency_ms,
+                    "httpsTunnel": https_tunnel,
+                    "mitmEnabled": mitm_enabled,
+                    "error": error,
+                    "createdAt": datetime.now(UTC).isoformat(),
+                }
+            )
+        except Exception:
+            logging.exception(
+                "Failed to write proxy log entry for %s from source ip %s",
+                target_url,
                 source_ip,
             )

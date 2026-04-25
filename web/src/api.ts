@@ -1,4 +1,4 @@
-import type { DnsDashboard, FocusConfig, User } from "./types";
+import type { DnsDashboard, FocusConfig, ProxySetupInfo, User } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -49,4 +49,8 @@ export function saveConfig(config: FocusConfig): Promise<{ config: FocusConfig }
 
 export function getDnsDashboard(): Promise<DnsDashboard> {
   return request("/api/dns-dashboard");
+}
+
+export function getProxySetup(): Promise<ProxySetupInfo> {
+  return request("/api/proxy-setup");
 }

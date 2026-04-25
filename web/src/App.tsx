@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
-import { getCurrentUser, getDnsDashboard, login, logout, register, saveConfig } from "./api";
-import type { BlockCategory, DnsDashboard, FocusConfig, ScheduleWindow, User } from "./types";
+import { getCurrentUser, getDnsDashboard, getProxySetup, login, logout, register, saveConfig } from "./api";
+import type { BlockCategory, DnsDashboard, FocusConfig, ProxySetupInfo, ScheduleWindow, User } from "./types";
 
 const suggestionPrompts = [
   "I am a software engineer working on backend systems, APIs, debugging, and reading technical documentation. GitHub, docs, cloud dashboards, and Stack Overflow are usually on-topic.",
@@ -31,7 +31,8 @@ const onboardingSteps = [
   { id: "schedule", title: "Study Schedule" },
   { id: "focus", title: "Focus Prompt" },
   { id: "categories", title: "Categories" },
-  { id: "blacklist", title: "Manual Blacklist" }
+  { id: "blacklist", title: "Manual Blacklist" },
+  { id: "proxy", title: "Web Proxy" }
 ] as const;
 
 type SettingsTab = (typeof onboardingSteps)[number]["id"];
@@ -478,18 +479,90 @@ function BlacklistEditor({
   );
 }
 
+function ProxySetupEditor({
+  proxySetup,
+  proxyLoading,
+  proxyError
+}: {
+  proxySetup: ProxySetupInfo | null;
+  proxyLoading: boolean;
+  proxyError: string | null;
+}) {
+  return (
+    <div className="panel-stack">
+      <div className="panel-copy">
+        <h3>Browser Proxy Setup</h3>
+        <p>
+          This step is optional, but it is what enables HTTP and HTTPS layer 7 inspection in the web proxy.
+        </p>
+      </div>
+
+      {proxyLoading ? <div className="empty-state">Loading proxy setup instructions...</div> : null}
+      {proxyError ? <div className="error-banner">{proxyError}</div> : null}
+
+      {proxySetup ? (
+        <>
+          <div className="proxy-setup-grid">
+            <div className="meta-box">
+              <span>Proxy address</span>
+              <strong>{proxySetup.proxyUrl}</strong>
+            </div>
+            <div className="meta-box">
+              <span>HTTPS inspection</span>
+              <strong>{proxySetup.mitmEnabled ? "Enabled" : "Disabled"}</strong>
+            </div>
+          </div>
+
+          <div className="dashboard-panel">
+            <div className="panel-copy">
+              <h3>1. Configure your browser proxy</h3>
+              <p>Point both HTTP and HTTPS proxy traffic at the gateway proxy port.</p>
+            </div>
+            <ol className="instructions-list">
+              {proxySetup.browserSteps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          </div>
+
+          <div className="dashboard-panel">
+            <div className="panel-copy">
+              <h3>2. Install the TimeHole root CA</h3>
+              <p>This allows the proxy to terminate TLS locally so it can inspect HTTPS URLs and responses.</p>
+            </div>
+            <a className="download-link" href={proxySetup.caDownloadUrl} target="_blank" rel="noreferrer">
+              Download root CA certificate
+            </a>
+            <ol className="instructions-list">
+              {proxySetup.certificateSteps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function SettingsSection({
   tab,
   config,
   setConfig,
   blacklistDraft,
-  setBlacklistDraft
+  setBlacklistDraft,
+  proxySetup,
+  proxyLoading,
+  proxyError
 }: {
   tab: SettingsTab;
   config: FocusConfig;
   setConfig: (config: FocusConfig) => void;
   blacklistDraft: string;
   setBlacklistDraft: (value: string) => void;
+  proxySetup: ProxySetupInfo | null;
+  proxyLoading: boolean;
+  proxyError: string | null;
 }) {
   if (tab === "schedule") {
     return <ScheduleEditor config={config} setConfig={setConfig} />;
@@ -501,6 +574,16 @@ function SettingsSection({
 
   if (tab === "categories") {
     return <CategoriesEditor config={config} setConfig={setConfig} />;
+  }
+
+  if (tab === "proxy") {
+    return (
+      <ProxySetupEditor
+        proxySetup={proxySetup}
+        proxyLoading={proxyLoading}
+        proxyError={proxyError}
+      />
+    );
   }
 
   return (
@@ -796,6 +879,9 @@ export function App() {
   const [activeTab, setActiveTab] = useState<MainTab>("home");
   const [dashboard, setDashboard] = useState<DnsDashboard | null>(null);
   const [togglingFocusMode, setTogglingFocusMode] = useState(false);
+  const [proxySetup, setProxySetup] = useState<ProxySetupInfo | null>(null);
+  const [proxyLoading, setProxyLoading] = useState(false);
+  const [proxyError, setProxyError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -811,6 +897,15 @@ export function App() {
             setDashboard(await getDnsDashboard());
           } catch {
             setDashboard(null);
+          }
+          setProxyLoading(true);
+          try {
+            setProxySetup(await getProxySetup());
+            setProxyError(null);
+          } catch (nextError) {
+            setProxyError(nextError instanceof Error ? nextError.message : "Could not load proxy setup.");
+          } finally {
+            setProxyLoading(false);
           }
         }
       } catch {
@@ -839,6 +934,15 @@ export function App() {
       } catch {
         setDashboard(null);
       }
+      setProxyLoading(true);
+      try {
+        setProxySetup(await getProxySetup());
+        setProxyError(null);
+      } catch (nextError) {
+        setProxyError(nextError instanceof Error ? nextError.message : "Could not load proxy setup.");
+      } finally {
+        setProxyLoading(false);
+      }
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Authentication failed.");
     } finally {
@@ -855,6 +959,8 @@ export function App() {
     setIsOnboarding(false);
     setActiveTab("home");
     setDashboard(null);
+    setProxySetup(null);
+    setProxyError(null);
   }
 
   async function persistConfig(nextConfig: FocusConfig) {
@@ -1005,6 +1111,7 @@ export function App() {
                     {step.id === "focus" && "Describe what you want to focus on and avoid."}
                     {step.id === "categories" && "Select the types of content to block."}
                     {step.id === "blacklist" && "Add exact site fragments to blackhole."}
+                    {step.id === "proxy" && "Optionally configure the browser proxy and HTTPS certificate."}
                   </p>
                 </div>
               </div>
@@ -1023,6 +1130,8 @@ export function App() {
                   "Now choose the categories that should be blocked during those work blocks."}
                 {currentStep.id === "blacklist" &&
                   "Finally, add any manual blacklist entries for sites you always want blocked."}
+                {currentStep.id === "proxy" &&
+                  "Optionally finish by enabling browser proxying and installing the TimeHole root certificate for HTTPS inspection."}
               </p>
             </div>
 
@@ -1032,6 +1141,9 @@ export function App() {
               setConfig={setConfig}
               blacklistDraft={blacklistDraft}
               setBlacklistDraft={setBlacklistDraft}
+              proxySetup={proxySetup}
+              proxyLoading={proxyLoading}
+              proxyError={proxyError}
             />
 
             {error ? <div className="error-banner">{error}</div> : null}
@@ -1040,10 +1152,19 @@ export function App() {
               <button
                 type="button"
                 className="secondary-button"
-                disabled={currentStepIndex === 0 || saving}
-                onClick={() => setActiveTab(onboardingSteps[currentStepIndex - 1].id)}
+                disabled={saving}
+                onClick={() => {
+                  if (currentStep.id === "proxy") {
+                    setIsOnboarding(false);
+                    return;
+                  }
+
+                  if (currentStepIndex > 0) {
+                    setActiveTab(onboardingSteps[currentStepIndex - 1].id);
+                  }
+                }}
               >
-                Back
+                {currentStep.id === "proxy" ? "Skip for now" : "Back"}
               </button>
               <button type="submit" disabled={saving}>
                 {saving
@@ -1088,6 +1209,8 @@ export function App() {
                   "Adjust the categories that should be considered off-topic during focus time."}
                 {activeTab === "blacklist" &&
                   "Update the manual site blacklist that uses substring matching."}
+                {activeTab === "proxy" &&
+                  "Download the root CA, enable the browser proxy, and turn on HTTPS layer 7 inspection."}
               </p>
             </div>
 
@@ -1106,17 +1229,22 @@ export function App() {
                   setConfig={setConfig}
                   blacklistDraft={blacklistDraft}
                   setBlacklistDraft={setBlacklistDraft}
+                  proxySetup={proxySetup}
+                  proxyLoading={proxyLoading}
+                  proxyError={proxyError}
                 />
 
-                <div className="save-row">
-                  <div>
-                    <h3>Save changes</h3>
-                    <p>Saving updates your user document in MongoDB and refreshes the stored source IP from this request.</p>
+                {activeTab !== "proxy" ? (
+                  <div className="save-row">
+                    <div>
+                      <h3>Save changes</h3>
+                      <p>Saving updates your user document in MongoDB and refreshes the stored source IP from this request.</p>
+                    </div>
+                    <button type="submit" disabled={saving}>
+                      {saving ? "Saving..." : "Save settings"}
+                    </button>
                   </div>
-                  <button type="submit" disabled={saving}>
-                    {saving ? "Saving..." : "Save settings"}
-                  </button>
-                </div>
+                ) : null}
               </>
             )}
 

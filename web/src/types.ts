@@ -88,3 +88,13 @@ export interface DnsDashboard {
   }>;
   recentLogs: DnsDashboardLog[];
 }
+
+export interface ProxySetupInfo {
+  proxyHost: string;
+  proxyPort: number;
+  proxyUrl: string;
+  caDownloadUrl: string;
+  mitmEnabled: boolean;
+  browserSteps: string[];
+  certificateSteps: string[];
+}

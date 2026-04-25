@@ -4,6 +4,7 @@ import logging
 import os
 import socket
 from dataclasses import dataclass, field
+from time import monotonic
 from typing import Final
 
 from dnslib import A, AAAA, DNSHeader, DNSQuestion, DNSRecord, QTYPE, RR
@@ -18,6 +19,7 @@ UPSTREAM_TIMEOUT_SECONDS: Final[float] = float(
 )
 MONGODB_URI: Final[str | None] = os.environ.get("MONGODB_URI")
 MONGODB_DB_NAME: Final[str] = os.environ.get("MONGODB_DB_NAME", "timehole")
+CACHE_TTL_SECONDS: Final[float] = float(os.environ.get("CACHE_TTL_SECONDS", "300"))
 
 mongo_client = MongoClient(MONGODB_URI) if MONGODB_URI else None
 users_collection = (
@@ -26,9 +28,14 @@ users_collection = (
 
 
 @dataclass
+class CachedDecision:
+    blocked: bool
+    expires_at: float
+
+
+@dataclass
 class SourceIpCache:
-    blocked: set[str] = field(default_factory=set)
-    allowed: set[str] = field(default_factory=set)
+    decisions: dict[str, CachedDecision] = field(default_factory=dict)
 
 
 decision_cache: dict[str, SourceIpCache] = {}
@@ -77,23 +84,25 @@ def get_cached_decision(source_ip: str, query_name: str) -> bool | None:
     if cache is None:
         return None
 
-    if query_name in cache.blocked:
-        return True
+    decision = cache.decisions.get(query_name)
+    if decision is None:
+        return None
 
-    if query_name in cache.allowed:
-        return False
+    if decision.expires_at <= monotonic():
+        del cache.decisions[query_name]
+        if not cache.decisions:
+            del decision_cache[source_ip]
+        return None
 
-    return None
+    return decision.blocked
 
 
 def cache_decision(source_ip: str, query_name: str, blocked: bool) -> None:
     cache = get_source_cache(source_ip)
-    if blocked:
-        cache.blocked.add(query_name)
-        cache.allowed.discard(query_name)
-    else:
-        cache.allowed.add(query_name)
-        cache.blocked.discard(query_name)
+    cache.decisions[query_name] = CachedDecision(
+        blocked=blocked,
+        expires_at=monotonic() + CACHE_TTL_SECONDS,
+    )
 
 
 def is_blocked(query_name: str, blacklist: list[str]) -> bool:

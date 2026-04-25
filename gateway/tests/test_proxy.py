@@ -10,7 +10,12 @@ from gateway.proxy.filtering import (
     is_proxy_filtering_active,
     normalize_http_target,
 )
-from gateway.proxy.server import SlidingWindowRateLimiter, build_block_page, build_llm_cache_key
+from gateway.proxy.server import (
+    SlidingWindowRateLimiter,
+    build_block_page,
+    build_llm_cache_key,
+    should_log_proxy_event,
+)
 
 
 class FrozenDateTime(real_datetime):
@@ -297,6 +302,20 @@ def test_sliding_window_rate_limiter_caps_calls_within_window():
     assert limiter.allow(now=10) is True
     assert limiter.allow(now=20) is False
     assert limiter.allow(now=61) is True
+
+
+def test_proxy_logs_only_llm_decision_events():
+    assert should_log_proxy_event("gemma_url_allowed")
+    assert should_log_proxy_event("gemma_url_blocked")
+    assert should_log_proxy_event("gemma_html_allowed")
+    assert should_log_proxy_event("gemma_html_blocked")
+    assert should_log_proxy_event("gemma_needs_html")
+
+    assert not should_log_proxy_event("focus_inactive")
+    assert not should_log_proxy_event("cache_allowed")
+    assert not should_log_proxy_event("cache_blocked")
+    assert not should_log_proxy_event("https_connect_passthrough")
+    assert not should_log_proxy_event("upstream_error")
 
 
 def test_evaluate_proxy_decision_defers_ambiguous_gemma_url_to_html():

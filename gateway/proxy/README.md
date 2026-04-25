@@ -13,7 +13,7 @@ Current behavior:
 - supports HTTPS `CONNECT`
 - performs HTTPS MITM interception using a locally generated TimeHole root CA
 - can inspect encrypted HTTPS request URLs once the CA is trusted in the browser
-- uses local Gemma through Ollama for URL and HTML-response decisions
+- uses remote Gemma through the Gemini API for URL and HTML-response decisions
 - caches URL and HTML classifier results in memory by focus-config version
 - exposes the root CA download at `/__timehole/ca.crt`
 
@@ -39,22 +39,10 @@ or block decisions are cached by URL and focus config, so once Gemma approves or
 blocks a URL it does not need to run again until the cache expires or the focus
 config changes. Intermediate LLM outputs are also cached by payload hash.
 
-To use local Gemma through Ollama:
-
-```bash
-ollama pull gemma3
-export PROXY_ENABLE_GEMMA_CLASSIFIER=true
-export GEMMA_API_PROVIDER="ollama"
-export GEMMA_API_URL="http://127.0.0.1:11434/api/generate"
-export GEMMA_MODEL="gemma3:latest"
-export GEMMA_TIMEOUT_SECONDS="10"
-```
-
-Hosted Gemini is still supported when needed:
+To use remote Gemma through the Gemini API:
 
 ```bash
 export PROXY_ENABLE_GEMMA_CLASSIFIER=true
-export GEMMA_API_PROVIDER="gemini"
 export GEMINI_API_KEY="..."
 export GEMMA_API_URL="https://generativelanguage.googleapis.com/v1beta"
 export GEMMA_MODEL="gemma-3-27b-it"
@@ -64,8 +52,7 @@ export GEMMA_TIMEOUT_SECONDS="3"
 The Gemini API call bypasses system proxy settings by default. This prevents the
 TimeHole proxy from recursively sending its own classifier request through
 `127.0.0.1:8080`. If you truly need a corporate/system proxy for Gemini, set
-`GEMMA_USE_SYSTEM_PROXY=true`. Local Ollama calls go directly to
-`127.0.0.1:11434` by default.
+`GEMMA_USE_SYSTEM_PROXY=true`.
 
 TLS verification uses `certifi` by default. You can override the CA bundle with
 `GEMMA_CA_BUNDLE=/path/to/cacert.pem`.

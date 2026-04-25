@@ -99,6 +99,10 @@ gemma_rate_limiter = SlidingWindowRateLimiter(
 )
 
 
+def should_log_proxy_event(decision_reason: str) -> bool:
+    return decision_reason.startswith("gemma_")
+
+
 def parse_host_port(authority: str, default_port: int) -> tuple[str, int]:
     if authority.startswith("[") and "]" in authority:
         host, _, port_text = authority[1:].partition("]")
@@ -483,27 +487,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 self.connection,
                 server_side=True,
             )
-        except Exception as error:
-            store.log_proxy_event(
-                source_ip=source_ip,
-                username=username,
-                user_matched=user is not None,
-                method="CONNECT",
-                scheme="https",
-                host=host,
-                path="/",
-                query="",
-                target_url=build_proxy_target_url("https", authority, "/", ""),
-                blocked=False,
-                cache_hit=False,
-                decision_reason="mitm_handshake_error",
-                gemma_response=None,
-                status_code=502,
-                upstream_latency_ms=None,
-                https_tunnel=True,
-                mitm_enabled=True,
-                error=str(error),
-            )
+        except Exception:
             return
 
         self._handle_https_intercepted_session(
@@ -1115,6 +1099,9 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         mitm_enabled: bool,
         error: str | None,
     ) -> None:
+        if not should_log_proxy_event(decision_reason):
+            return
+
         store.log_proxy_event(
             source_ip=source_ip,
             username=username,

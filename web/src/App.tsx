@@ -650,19 +650,19 @@ function DashboardHome({
       </div>
 
       <div className="metrics-grid">
-        <div className="metric-card">
+        <div className="metric-card" style={{ background: "rgba(125, 211, 252, 0.8)" }}>
           <span>Total requests</span>
           <strong>{dashboard.totals.totalQueries}</strong>
         </div>
-        <div className="metric-card">
-          <span>Blocked requests</span>
-          <strong>{dashboard.totals.blockedQueries}</strong>
-        </div>
-        <div className="metric-card">
+        <div className="metric-card" style={{ background: "rgba(134, 239, 172, 0.8)" }}>
           <span>Allowed requests</span>
           <strong>{dashboard.totals.allowedQueries}</strong>
         </div>
-        <div className="metric-card">
+        <div className="metric-card" style={{ background: "rgba(252, 165, 165, 0.8)" }}>
+          <span>Blocked requests</span>
+          <strong>{dashboard.totals.blockedQueries}</strong>
+        </div>
+        <div className="metric-card" style={{ background: "rgba(253, 224, 71, 0.8)" }}>
           <span>Block rate</span>
           <strong>{(dashboard.totals.blockRate * 100).toFixed(0)}%</strong>
         </div>

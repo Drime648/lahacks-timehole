@@ -337,6 +337,9 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "TimeHoleProxy/0.2"
 
+    def _reset_gemma_response(self) -> None:
+        self._latest_gemma_response: str | None = None
+
     def _cache_final_decision(
         self,
         source_ip: str,
@@ -389,6 +392,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             )
             return "allow"
 
+        self._latest_gemma_response = decision
         decision_cache.cache_llm_decision(
             source_ip,
             cache_key,
@@ -532,6 +536,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         self._handle_http_request()
 
     def _handle_http_request(self) -> None:
+        self._reset_gemma_response()
         if should_serve_control_route(self):
             self._serve_control_route()
             return
@@ -842,6 +847,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         writer = client_tls.makefile("wb")
 
         try:
+            self._reset_gemma_response()
             request_line = reader.readline().decode("iso-8859-1").strip()
             if not request_line:
                 return
@@ -1108,7 +1114,6 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         mitm_enabled: bool,
         error: str | None,
     ) -> None:
-        pass
         store.log_proxy_event(
             source_ip=source_ip,
             username=username,
@@ -1122,6 +1127,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             blocked=blocked,
             cache_hit=cache_hit,
             decision_reason=decision_reason,
+            gemma_response=getattr(self, "_latest_gemma_response", None),
             status_code=status_code,
             upstream_latency_ms=upstream_latency_ms,
             https_tunnel=https_tunnel,

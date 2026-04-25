@@ -828,11 +828,11 @@ function DashboardHome({
 
       <div className="dashboard-panel">
         <div className="panel-copy">
-          <h3>Recent DNS query log</h3>
-          <p>Pi-hole-style per-query detail for the most recent relay decisions.</p>
+          <h3>Recent Web Request Log</h3>
+          <p>Most recent web proxy requests and decisions, including Gemma outcomes.</p>
         </div>
         {dashboard.recentLogs.length === 0 ? (
-          <div className="empty-state">No recent DNS query log entries yet.</div>
+          <div className="empty-state">No recent web request log entries yet.</div>
         ) : (
           <div className="logs-list">
             {dashboard.recentLogs.map((log, index) => {
@@ -852,8 +852,10 @@ function DashboardHome({
                   </div>
                   <div className="log-row-meta-grid">
                     <span className="status">Status: {log.blocked ? "Blocked" : "Allowed"}</span>
+                    <span className="source">Source: {log.logSource === "proxy" ? "Web Proxy" : "DNS"}</span>
                     <span className="cache">Cache: {log.cacheHit ? "hit" : "miss"}</span>
                     <span className="reason">Reason: {log.decisionReason || "n/a"}</span>
+                    <span className="gemma">Gemma: {log.gemmaResponse || "n/a"}</span>
                     <span className="code">HTTP {log.responseCode || "n/a"}</span>
                     <span className="latency">Latency: {log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs} ms` : "n/a"}</span>
                     <span className="timestamp">Date: {new Date(log.createdAt).toLocaleString()}</span>

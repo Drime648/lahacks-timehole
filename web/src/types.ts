@@ -50,6 +50,8 @@ export interface DnsDashboardLog {
   answers?: string[];
   upstreamLatencyMs?: number | null;
   error?: string | null;
+  gemmaResponse?: string | null;
+  logSource?: "dns" | "proxy";
   createdAt: string;
 }
 

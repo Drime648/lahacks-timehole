@@ -362,7 +362,10 @@ app.get("/api/dns-dashboard", async (request, response) => {
     .limit(50)
     .toArray();
   const combinedRecentLogs = [
-    ...recentLogs,
+    ...recentLogs.map((log) => ({
+      ...log,
+      logSource: "dns" as const
+    })),
     ...recentProxyLogs.map((log) => ({
       sourceIp: log.sourceIp,
       username: log.username,
@@ -372,11 +375,13 @@ app.get("/api/dns-dashboard", async (request, response) => {
       blocked: log.blocked,
       cacheHit: log.cacheHit,
       decisionReason: log.decisionReason,
+      gemmaResponse: log.gemmaResponse ?? null,
       responseCode: log.statusCode == null ? null : String(log.statusCode),
       answerCount: [log.host].filter(Boolean).length,
       answers: [log.host].filter(Boolean),
       upstreamLatencyMs: log.upstreamLatencyMs,
       error: log.error,
+      logSource: "proxy" as const,
       createdAt: log.createdAt
     }))
   ]

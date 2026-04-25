@@ -146,7 +146,6 @@ def evaluate_proxy_decision(
     cache_decision: Callable[[str, str, bool], None],
     now_provider: Callable[[str], datetime] | None = None,
 ) -> ProxyPolicyDecision:
-    print(target_url)
     if not is_proxy_filtering_active(user, now_provider=now_provider):
         return ProxyPolicyDecision(
             blocked=False,

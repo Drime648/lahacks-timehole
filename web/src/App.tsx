@@ -4,7 +4,7 @@ import type { BlockCategory, DnsDashboard, FocusConfig, ProxySetupInfo, Schedule
 
 const suggestionPrompts = [
   "I am a software engineer working on backend systems, APIs, debugging, and reading technical documentation. GitHub, docs, cloud dashboards, and Stack Overflow are usually on-topic.",
-  "I am studying computer science and focusing on assignments, research, and interview preparation. Entertainment and social apps are usually off-topic during focus time.",
+  "I am focused on computer science work like assignments, research, and interview preparation. Entertainment and social apps are usually off-topic during focus time.",
   "I work on startup/product tasks like design docs, coding, analytics, and customer research. Relevant tools and technical references should still count as productive.",
   "I am doing schoolwork and project building. Educational videos or specific communities may be helpful if they clearly relate to my current work."
 ];
@@ -28,7 +28,7 @@ const dayLabels = [
 ];
 
 const onboardingSteps = [
-  { id: "schedule", title: "Study Schedule" },
+  { id: "schedule", title: "Focus Calendar" },
   { id: "focus", title: "Focus Prompt" },
   { id: "categories", title: "Categories" },
   { id: "blacklist", title: "Manual Blacklist" },
@@ -1210,7 +1210,7 @@ export function App() {
                 {activeTab === "home" &&
                   "Your DNS relay metrics and recent DNS activity appear here by default."}
                 {activeTab === "schedule" &&
-                  "The previous main settings content now lives here under Study Schedule."}
+                  "The previous main settings content now lives here under Focus Calendar."}
                 {activeTab === "focus" &&
                   "Refine the paragraph that explains what productive work looks like for you."}
                 {activeTab === "categories" &&

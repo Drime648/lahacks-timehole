@@ -10,7 +10,7 @@ from gateway.proxy.filtering import (
     is_proxy_filtering_active,
     normalize_http_target,
 )
-from gateway.proxy.server import build_block_page, build_llm_cache_key
+from gateway.proxy.server import SlidingWindowRateLimiter, build_block_page, build_llm_cache_key
 
 
 class FrozenDateTime(real_datetime):
@@ -264,6 +264,15 @@ def test_build_llm_cache_key_includes_html_metadata():
 
     assert build_llm_cache_key(base_payload) == build_llm_cache_key({**base_payload})
     assert build_llm_cache_key(base_payload) != build_llm_cache_key(changed_payload)
+
+
+def test_sliding_window_rate_limiter_caps_calls_within_window():
+    limiter = SlidingWindowRateLimiter(max_calls=2, window_seconds=60)
+
+    assert limiter.allow(now=0) is True
+    assert limiter.allow(now=10) is True
+    assert limiter.allow(now=20) is False
+    assert limiter.allow(now=61) is True
 
 
 def test_evaluate_proxy_decision_defers_ambiguous_gemma_url_to_html():

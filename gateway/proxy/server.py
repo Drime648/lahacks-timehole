@@ -9,6 +9,7 @@ import select
 import socket
 import ssl
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import monotonic
@@ -42,6 +43,14 @@ ENABLE_HTTPS_MITM: Final[bool] = os.environ.get("PROXY_ENABLE_HTTPS_MITM", "true
 ENABLE_GEMMA_CLASSIFIER: Final[bool] = (
     os.environ.get("PROXY_ENABLE_GEMMA_CLASSIFIER", "false").lower() == "true"
 )
+CLASSIFIER_CACHE_VERSION: Final[str] = os.environ.get(
+    "CLASSIFIER_CACHE_VERSION",
+    "remote-gemma-v2-lenient-platforms",
+)
+GEMMA_RATE_LIMIT_CALLS: Final[int] = int(os.environ.get("GEMMA_RATE_LIMIT_CALLS", "20"))
+GEMMA_RATE_LIMIT_WINDOW_SECONDS: Final[float] = float(
+    os.environ.get("GEMMA_RATE_LIMIT_WINDOW_SECONDS", "60")
+)
 PROXY_CERTS_DIR: Final[str] = os.environ.get(
     "PROXY_CERTS_DIR",
     os.path.join(os.path.dirname(__file__), "certs"),
@@ -63,6 +72,31 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
+
+
+class SlidingWindowRateLimiter:
+    def __init__(self, *, max_calls: int, window_seconds: float) -> None:
+        self.max_calls = max_calls
+        self.window_seconds = window_seconds
+        self._timestamps: list[float] = []
+        self._lock = threading.Lock()
+
+    def allow(self, now: float | None = None) -> bool:
+        current_time = monotonic() if now is None else now
+        window_start = current_time - self.window_seconds
+
+        with self._lock:
+            self._timestamps = [timestamp for timestamp in self._timestamps if timestamp > window_start]
+            if len(self._timestamps) >= self.max_calls:
+                return False
+            self._timestamps.append(current_time)
+            return True
+
+
+gemma_rate_limiter = SlidingWindowRateLimiter(
+    max_calls=GEMMA_RATE_LIMIT_CALLS,
+    window_seconds=GEMMA_RATE_LIMIT_WINDOW_SECONDS,
+)
 
 
 def parse_host_port(authority: str, default_port: int) -> tuple[str, int]:
@@ -98,21 +132,29 @@ def read_request_body(handler: BaseHTTPRequestHandler) -> bytes:
 
 def get_focus_config_version(user: dict | None) -> str | None:
     if user is None:
-        return None
+        return CLASSIFIER_CACHE_VERSION
 
     focus_config = user.get("focusConfig", {})
     if not isinstance(focus_config, dict):
-        return None
+        return CLASSIFIER_CACHE_VERSION
 
     updated_at = focus_config.get("updatedAt")
     if updated_at is None:
-        return None
+        return CLASSIFIER_CACHE_VERSION
 
-    return str(updated_at)
+    return f"{updated_at}:{CLASSIFIER_CACHE_VERSION}"
 
 
 def build_llm_cache_key(payload: dict) -> str:
-    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    serialized = json.dumps(
+        {
+            "classifier_cache_version": CLASSIFIER_CACHE_VERSION,
+            "payload": payload,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
@@ -131,6 +173,29 @@ def write_raw_response(
     if body:
         stream.write(body)
     stream.flush()
+
+
+def try_write_raw_response(
+    stream,
+    *,
+    status_code: int,
+    reason: str,
+    headers: dict[str, str],
+    body: bytes,
+    context: str,
+) -> bool:
+    try:
+        write_raw_response(
+            stream,
+            status_code=status_code,
+            reason=reason,
+            headers=headers,
+            body=body,
+        )
+        return True
+    except (ssl.SSLError, BrokenPipeError, ConnectionResetError, OSError) as error:
+        logging.info("HTTPS response write failed during %s: %s", context, error)
+        return False
 
 
 def build_block_page(target_url: str, reason: str) -> bytes:
@@ -237,13 +302,15 @@ def send_https_response(
     }
     headers["Content-Length"] = str(len(body))
     headers["Connection"] = "close"
-    write_raw_response(
+    if not try_write_raw_response(
         stream,
         status_code=status_code,
         reason=reason,
         headers=headers,
         body=body,
-    )
+        context="https_upstream_response",
+    ):
+        raise ConnectionResetError("HTTPS client disconnected before upstream response could be written")
 
 
 def get_header_value(headers: list[tuple[str, str]], name: str) -> str | None:
@@ -252,6 +319,18 @@ def get_header_value(headers: list[tuple[str, str]], name: str) -> str | None:
         if header.lower() == lowered_name:
             return value
     return None
+
+
+def build_upstream_headers(headers: dict[str, str], host: str) -> dict[str, str]:
+    upstream_headers = {
+        key: value
+        for key, value in headers.items()
+        if key.lower() not in HOP_BY_HOP_HEADERS
+    }
+    upstream_headers["Host"] = host
+    # Ask upstream for an uncompressed response so HTML classification sees real text.
+    upstream_headers["Accept-Encoding"] = "identity"
+    return upstream_headers
 
 
 class TimeHoleProxyHandler(BaseHTTPRequestHandler):
@@ -290,6 +369,15 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         )
         if cached_decision is not None:
             return cached_decision
+
+        if not gemma_rate_limiter.allow():
+            logging.warning(
+                "Gemma rate limit reached (%s calls/%ss); allowing %s without remote classification",
+                GEMMA_RATE_LIMIT_CALLS,
+                GEMMA_RATE_LIMIT_WINDOW_SECONDS,
+                payload.get("target_url"),
+            )
+            return "allow"
 
         try:
             decision = gemma_classifier(payload)
@@ -525,12 +613,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             return
 
         body = read_request_body(self)
-        upstream_headers = {
-            key: value
-            for key, value in self.headers.items()
-            if key.lower() not in HOP_BY_HOP_HEADERS
-        }
-        upstream_headers["Host"] = host
+        upstream_headers = build_upstream_headers(dict(self.headers.items()), host)
         upstream_path = path if not query else f"{path}?{query}"
 
         upstream_host, upstream_port = parse_host_port(host, 443 if scheme == "https" else 80)
@@ -858,12 +941,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            upstream_headers = {
-                key: value
-                for key, value in headers.items()
-                if key.lower() not in HOP_BY_HOP_HEADERS
-            }
-            upstream_headers["Host"] = host
+            upstream_headers = build_upstream_headers(headers, host)
             start = monotonic()
             connection = None
             status_code = None
@@ -909,7 +987,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                         source_ip,
                         final_policy.decision_reason,
                     )
-                    write_raw_response(
+                    if not try_write_raw_response(
                         writer,
                         status_code=403,
                         reason="Blocked by TimeHole proxy",
@@ -919,7 +997,9 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                             "Connection": "close",
                         },
                         body=blocked_body,
-                    )
+                        context="https_block_page",
+                    ):
+                        return
                     self._log_proxy(
                         source_ip=source_ip,
                         username=username,
@@ -952,7 +1032,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             except Exception as upstream_error:
                 error = str(upstream_error)
                 error_body = error.encode("utf-8", "replace")
-                write_raw_response(
+                if not try_write_raw_response(
                     writer,
                     status_code=502,
                     reason="Bad Gateway",
@@ -962,7 +1042,9 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                         "Connection": "close",
                     },
                     body=error_body,
-                )
+                    context="https_bad_gateway",
+                ):
+                    return
                 status_code = 502
             finally:
                 upstream_latency_ms = round((monotonic() - start) * 1000, 2)

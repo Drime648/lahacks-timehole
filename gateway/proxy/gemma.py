@@ -35,6 +35,9 @@ class GeminiGemmaClassifier:
         timeout_seconds: float,
         use_system_proxy: bool,
         ca_bundle: str | None,
+        temperature: float,
+        top_p: float,
+        top_k: int,
     ) -> None:
         self.api_key = api_key
         self.model = model
@@ -42,6 +45,9 @@ class GeminiGemmaClassifier:
         self.timeout_seconds = timeout_seconds
         self.use_system_proxy = use_system_proxy
         self.ca_bundle = ca_bundle or (certifi.where() if certifi is not None else None)
+        self.temperature = temperature
+        self.top_p = top_p
+        self.top_k = top_k
 
     @classmethod
     def from_env(cls) -> "GeminiGemmaClassifier | None":
@@ -59,6 +65,9 @@ class GeminiGemmaClassifier:
             timeout_seconds=float(os.environ.get("GEMMA_TIMEOUT_SECONDS", "3")),
             use_system_proxy=os.environ.get("GEMMA_USE_SYSTEM_PROXY", "false").lower() == "true",
             ca_bundle=os.environ.get("GEMMA_CA_BUNDLE"),
+            temperature=float(os.environ.get("GEMMA_TEMPERATURE", "0")),
+            top_p=float(os.environ.get("GEMMA_TOP_P", "0")),
+            top_k=int(os.environ.get("GEMMA_TOP_K", "1")),
         )
 
     def __call__(self, payload: dict[str, Any]) -> str:
@@ -68,6 +77,7 @@ class GeminiGemmaClassifier:
         phase = str(payload.get("phase", "url"))
         prompt = self._build_prompt(payload)
         response_text = self._generate_content(prompt)
+        logging.info("Gemma raw response: %s", response_text)
         return normalize_semantic_decision(
             response_text,
             allow_needs_html=phase == "url",
@@ -85,8 +95,12 @@ class GeminiGemmaClassifier:
             description = str(payload.get("description", "")).strip() or "(none)"
             text = str(payload.get("text", "")).strip() or "(none)"
             return (
-                "You are a strict web-focus classifier for a productivity proxy.\n"
-                "Decide whether the webpage is aligned with the user's current focus.\n"
+                "You are a conservative web-focus classifier for a productivity proxy.\n"
+                "Only block a webpage when the content is clearly, specifically, and confidently off-topic for the user's focus.\n"
+                "If there is meaningful ambiguity, educational value, research value, documentation value, community-help value, or plausible productivity value, choose ALLOW.\n"
+                "Do not block a page only because the domain can contain distractions. Judge the actual page content.\n"
+                "Examples: a programming subreddit, technical YouTube tutorial, Google Docs page, or research search results should usually be ALLOW.\n"
+                "Examples: meme feeds, celebrity gossip, casual entertainment videos, shopping browsing, and clearly recreational scrolling should usually be BLOCK.\n"
                 "Reply with exactly one token: ALLOW or BLOCK.\n\n"
                 f"Focus summary:\n{focus_summary}\n\n"
                 f"Blocked categories:\n{categories_text}\n\n"
@@ -97,8 +111,13 @@ class GeminiGemmaClassifier:
             )
 
         return (
-            "You are a strict web-focus classifier for a productivity proxy.\n"
-            "Decide whether the URL is aligned with the user's current focus.\n"
+            "You are a conservative web-focus classifier for a productivity proxy.\n"
+            "Only block when the URL alone makes it obvious that the destination is specifically off-topic.\n"
+            "If the URL could plausibly be productive, educational, research-oriented, documentation-related, or community-helpful, do not block from the URL alone.\n"
+            "Broad platforms like reddit.com, youtube.com, google.com, docs.google.com, github.com, and similar multi-purpose domains are usually ambiguous and should return NEEDS_HTML unless the URL path itself is clearly recreational or off-topic.\n"
+            "In particular, do not block youtube.com from the domain alone, and do not block generic paths like '/', '/results', '/feed', '/channel/...', or '/@name' from the URL alone.\n"
+            "For YouTube, only return BLOCK at the URL stage when the URL itself clearly identifies specifically unproductive content, such as an obviously recreational watch page, shorts page, or entertainment-specific query/path. Otherwise return NEEDS_HTML.\n"
+            "For Reddit, only return BLOCK at the URL stage when the subreddit, post slug, or query clearly shows specifically off-topic recreational content. Otherwise return NEEDS_HTML.\n"
             "If the URL alone is clearly enough, reply with exactly one token: ALLOW or BLOCK.\n"
             "If the URL is ambiguous and HTML content inspection is needed, reply with exactly one token: NEEDS_HTML.\n\n"
             f"Focus summary:\n{focus_summary}\n\n"
@@ -107,6 +126,7 @@ class GeminiGemmaClassifier:
         )
 
     def _generate_content(self, prompt: str) -> str:
+        logging.info("Gemma prompt:\n%s", prompt)
         request = urllib.request.Request(
             url=f"{self.api_url}/models/{self.model}:generateContent",
             data=json.dumps(
@@ -118,8 +138,9 @@ class GeminiGemmaClassifier:
                         }
                     ],
                     "generationConfig": {
-                        "temperature": 0,
-                        "topP": 1,
+                        "temperature": self.temperature,
+                        "topP": self.top_p,
+                        "topK": self.top_k,
                         "maxOutputTokens": 8,
                     },
                 }

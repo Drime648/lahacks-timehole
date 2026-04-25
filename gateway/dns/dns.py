@@ -6,6 +6,7 @@ import socket
 from typing import Final
 
 from dnslib import A, AAAA, DNSHeader, DNSQuestion, DNSRecord, QTYPE, RR
+from pymongo import MongoClient
 
 LISTEN_HOST: Final[str] = os.environ.get("DNS_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT: Final[int] = int(os.environ.get("DNS_PORT", "5354"))
@@ -14,12 +15,13 @@ UPSTREAM_DNS_PORT: Final[int] = int(os.environ.get("UPSTREAM_DNS_PORT", "53"))
 UPSTREAM_TIMEOUT_SECONDS: Final[float] = float(
     os.environ.get("UPSTREAM_TIMEOUT_SECONDS", "5.0")
 )
+MONGODB_URI: Final[str | None] = os.environ.get("MONGODB_URI")
+MONGODB_DB_NAME: Final[str] = os.environ.get("MONGODB_DB_NAME", "timehole")
 
-BLACKLIST: Final[list[str]] = [
-    "tiktok",
-    "reddit",
-    "roblox",
-]
+mongo_client = MongoClient(MONGODB_URI) if MONGODB_URI else None
+users_collection = (
+    mongo_client[MONGODB_DB_NAME]["users"] if mongo_client is not None else None
+)
 
 
 def extract_query_name(data: bytes) -> tuple[DNSRecord, str, str]:
@@ -33,8 +35,27 @@ def extract_query_name(data: bytes) -> tuple[DNSRecord, str, str]:
     return request, qname, qtype
 
 
-def is_blocked(query_name: str) -> bool:
-    return any(entry in query_name for entry in BLACKLIST)
+def get_blacklist_for_source_ip(source_ip: str) -> list[str]:
+    if users_collection is None:
+        return []
+
+    user = users_collection.find_one(
+        {"focusConfig.sourceIp": source_ip},
+        {"focusConfig.blacklist": 1, "username": 1},
+    )
+
+    if not user:
+        return []
+
+    blacklist = user.get("focusConfig", {}).get("blacklist", [])
+    if not isinstance(blacklist, list):
+        return []
+
+    return [str(entry).lower() for entry in blacklist]
+
+
+def is_blocked(query_name: str, blacklist: list[str]) -> bool:
+    return any(entry in query_name for entry in blacklist)
 
 
 def build_blackhole_response(request: DNSRecord, query_name: str, qtype: str) -> bytes:
@@ -72,11 +93,12 @@ def serve() -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
         server.bind((LISTEN_HOST, LISTEN_PORT))
         logging.info(
-            "DNS relay listening on %s:%s and forwarding to %s:%s",
+            "DNS relay listening on %s:%s and forwarding to %s:%s using db=%s",
             LISTEN_HOST,
             LISTEN_PORT,
             UPSTREAM_DNS_HOST,
             UPSTREAM_DNS_PORT,
+            MONGODB_DB_NAME,
         )
 
         while True:
@@ -84,16 +106,28 @@ def serve() -> None:
 
             try:
                 request, query_name, qtype = extract_query_name(data)
+                source_ip = client_address[0]
 
                 if not query_name:
                     logging.warning("Received DNS query without a question section")
                     continue
 
-                if is_blocked(query_name):
-                    logging.info("Blocked query for %s", query_name)
+                blacklist = get_blacklist_for_source_ip(source_ip)
+
+                if is_blocked(query_name, blacklist):
+                    logging.info(
+                        "Blocked query for %s from source ip %s using %s blacklist entries",
+                        query_name,
+                        source_ip,
+                        len(blacklist),
+                    )
                     response = build_blackhole_response(request, query_name, qtype)
                 else:
-                    logging.info("Relaying query for %s", query_name)
+                    logging.info(
+                        "Relaying query for %s from source ip %s",
+                        query_name,
+                        source_ip,
+                    )
                     response = relay_to_upstream(data)
 
                 server.sendto(response, client_address)

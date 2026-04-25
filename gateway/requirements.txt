@@ -1,1 +1,2 @@
 dnslib==0.9.24
+pymongo==4.15.0

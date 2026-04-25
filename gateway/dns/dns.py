@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+from dataclasses import dataclass, field
 from typing import Final
 
 from dnslib import A, AAAA, DNSHeader, DNSQuestion, DNSRecord, QTYPE, RR
@@ -22,6 +23,15 @@ mongo_client = MongoClient(MONGODB_URI) if MONGODB_URI else None
 users_collection = (
     mongo_client[MONGODB_DB_NAME]["users"] if mongo_client is not None else None
 )
+
+
+@dataclass
+class SourceIpCache:
+    blocked: set[str] = field(default_factory=set)
+    allowed: set[str] = field(default_factory=set)
+
+
+decision_cache: dict[str, SourceIpCache] = {}
 
 
 def extract_query_name(data: bytes) -> tuple[DNSRecord, str, str]:
@@ -52,6 +62,38 @@ def get_blacklist_for_source_ip(source_ip: str) -> list[str]:
         return []
 
     return [str(entry).lower() for entry in blacklist]
+
+
+def get_source_cache(source_ip: str) -> SourceIpCache:
+    cache = decision_cache.get(source_ip)
+    if cache is None:
+        cache = SourceIpCache()
+        decision_cache[source_ip] = cache
+    return cache
+
+
+def get_cached_decision(source_ip: str, query_name: str) -> bool | None:
+    cache = decision_cache.get(source_ip)
+    if cache is None:
+        return None
+
+    if query_name in cache.blocked:
+        return True
+
+    if query_name in cache.allowed:
+        return False
+
+    return None
+
+
+def cache_decision(source_ip: str, query_name: str, blocked: bool) -> None:
+    cache = get_source_cache(source_ip)
+    if blocked:
+        cache.blocked.add(query_name)
+        cache.allowed.discard(query_name)
+    else:
+        cache.allowed.add(query_name)
+        cache.blocked.discard(query_name)
 
 
 def is_blocked(query_name: str, blacklist: list[str]) -> bool:
@@ -112,14 +154,31 @@ def serve() -> None:
                     logging.warning("Received DNS query without a question section")
                     continue
 
-                blacklist = get_blacklist_for_source_ip(source_ip)
-
-                if is_blocked(query_name, blacklist):
+                cached_blocked = get_cached_decision(source_ip, query_name)
+                if cached_blocked is not None:
+                    blocked = cached_blocked
                     logging.info(
-                        "Blocked query for %s from source ip %s using %s blacklist entries",
+                        "Cache hit for %s from source ip %s: %s",
+                        query_name,
+                        source_ip,
+                        "blocked" if blocked else "allowed",
+                    )
+                else:
+                    blacklist = get_blacklist_for_source_ip(source_ip)
+                    blocked = is_blocked(query_name, blacklist)
+                    cache_decision(source_ip, query_name, blocked)
+                    logging.info(
+                        "Cache miss for %s from source ip %s; evaluated against %s blacklist entries",
                         query_name,
                         source_ip,
                         len(blacklist),
+                    )
+
+                if blocked:
+                    logging.info(
+                        "Blocked query for %s from source ip %s",
+                        query_name,
+                        source_ip,
                     )
                     response = build_blackhole_response(request, query_name, qtype)
                 else:

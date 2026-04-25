@@ -1079,7 +1079,7 @@ export function App() {
           <h1>
             {isOnboarding
               ? "Walk through your focus settings one step at a time."
-              : "Manage your focus settings in separate tabs."}
+              : "Manage your focus settings."}
           </h1>
           <p className="lede">
             Your saved settings include schedule windows, categories, blacklist

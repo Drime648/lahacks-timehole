@@ -371,11 +371,12 @@ function FocusEditor({
   setConfig: (config: FocusConfig) => void;
 }) {
   return (
-    <div className="panel-stack">
+    <div className="panel-stack focus-editor">
       <label>
         What do you want to focus on, and what do you want to stay away from?
         <textarea
-          rows={10}
+          className="focus-summary-input"
+          rows={8}
           value={config.focusSummary}
           onChange={(event) => setConfig({ ...config, focusSummary: event.target.value })}
           placeholder="I want to focus on coursework, project work, and documentation. I want to stay away from social feeds, gaming, and casual browsing during work blocks..."
@@ -912,34 +913,6 @@ function DashboardHome({
             </div>
           )}
         </div>
-      </div>
-
-      <div className="dashboard-panel">
-        <div className="panel-copy">
-          <h3>Query type breakdown</h3>
-        </div>
-        {dashboard.queryTypeBreakdown.length === 0 ? (
-          <div className="empty-state">No query types recorded yet.</div>
-        ) : (
-          <div className="bars-list">
-            {dashboard.queryTypeBreakdown.map((entry) => (
-              <div className="bar-row" key={entry.queryType}>
-                <div className="bar-row-meta">
-                  <span>{entry.queryType}</span>
-                  <strong>{entry.count}</strong>
-                </div>
-                <div className="bar-track">
-                  <div
-                    className="bar-fill"
-                    style={{
-                      width: `${(entry.count / dashboard.queryTypeBreakdown[0].count) * 100}%`
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

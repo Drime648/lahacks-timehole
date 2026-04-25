@@ -567,6 +567,20 @@ button[type="submit"] {
   align-content: start;
 }
 
+.focus-editor {
+  gap: 12px;
+}
+
+.focus-summary-input {
+  min-height: 260px;
+  resize: none;
+}
+
+.focus-editor .suggestions-layout {
+  grid-template-columns: 180px 1fr;
+  gap: 12px;
+}
+
 .suggestions-layout {
   grid-template-columns: 220px 1fr;
   align-items: start;

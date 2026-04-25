@@ -804,7 +804,7 @@ function DashboardHome({
             <div className="empty-state">No blocked DNS domains yet.</div>
           ) : (
             <div className="bars-list blocked-domains-list">
-              {dashboard.topBlockedDomains.map((entry) => (
+              {dashboard.topBlockedDomains.slice(0, 4).map((entry) => (
                 <div className="bar-row blocked-domain-row" key={entry.queryName}>
                   <div className="bar-row-meta">
                     <span>{entry.queryName}</span>

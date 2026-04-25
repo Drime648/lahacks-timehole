@@ -414,11 +414,6 @@ function FocusEditor({
           ))}
         </div>
       </div>
-
-      <div className="prompt-box">
-        <h3>Prompt Preview</h3>
-        <pre>{promptPreview(config)}</pre>
-      </div>
     </div>
   );
 }

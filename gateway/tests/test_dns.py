@@ -131,6 +131,31 @@ def test_get_cached_decision_misses_when_config_version_changes(monkeypatch):
     assert "10.0.0.1" not in cache.entries
 
 
+def test_cache_llm_decision_uses_config_version(monkeypatch):
+    cache = DecisionCache(ttl_seconds=300)
+    monkeypatch.setattr("gateway.cache.monotonic", lambda: 100.0)
+
+    cache.cache_llm_decision("10.0.0.1", "llm-key", "needs_html", config_version="before")
+
+    assert (
+        cache.get_cached_llm_decision(
+            "10.0.0.1",
+            "llm-key",
+            config_version="before",
+        )
+        == "needs_html"
+    )
+    assert (
+        cache.get_cached_llm_decision(
+            "10.0.0.1",
+            "llm-key",
+            config_version="after",
+        )
+        is None
+    )
+    assert "10.0.0.1" not in cache.entries
+
+
 def test_get_blacklist_for_source_ip_returns_normalized_blacklist(monkeypatch):
     store = MongoGatewayStore(
         users_collection=FakeUsersCollection({"focusConfig": {"blacklist": ["Reddit", "TikTok"]}})

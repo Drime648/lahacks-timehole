@@ -6,6 +6,49 @@ from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
+GOOGLE_STATIC_HOSTS = {
+    "gstatic.com",
+    "googleusercontent.com",
+    "googleapis.com",
+    "googleadservices.com",
+    "googletagmanager.com",
+    "googletagservices.com",
+    "google-analytics.com",
+    "doubleclick.net",
+}
+
+GOOGLE_STATIC_PATH_PREFIXES = (
+    "/images/",
+    "/logos/",
+    "/xjs/",
+    "/complete/",
+    "/generate_204",
+    "/gen_204",
+    "/favicon.ico",
+)
+
+STATIC_ASSET_EXTENSIONS = (
+    ".avif",
+    ".bmp",
+    ".css",
+    ".gif",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".js",
+    ".json",
+    ".map",
+    ".mjs",
+    ".otf",
+    ".png",
+    ".svg",
+    ".ttf",
+    ".wasm",
+    ".webp",
+    ".woff",
+    ".woff2",
+)
+
 
 @dataclass(frozen=True)
 class ProxyPolicyDecision:
@@ -152,6 +195,20 @@ def should_block_url(target_url: str, blacklist: list[str]) -> bool:
     return any(entry in lowered_url for entry in blacklist)
 
 
+def is_google_static_asset(target_url: str) -> bool:
+    parsed = urlsplit(target_url)
+    host = parsed.hostname or ""
+    host = host.lower().removeprefix("www.")
+    path = (parsed.path or "/").lower()
+
+    if host == "google.com" or host.endswith(".google.com"):
+        return path.endswith(STATIC_ASSET_EXTENSIONS) or path.startswith(
+            GOOGLE_STATIC_PATH_PREFIXES
+        )
+
+    return any(host == static_host or host.endswith(f".{static_host}") for static_host in GOOGLE_STATIC_HOSTS)
+
+
 def extract_page_metadata(
     *,
     content_type: str | None,
@@ -207,6 +264,7 @@ def evaluate_semantic_response(
     focus_config = user.get("focusConfig", {})
 
     payload = {
+        "phase": "html",
         "target_url": target_url,
         "title": metadata.get("title", ""),
         "description": metadata.get("description", ""),
@@ -219,7 +277,8 @@ def evaluate_semantic_response(
     if semantic_classifier is None:
         return False, "semantic_classifier_missing"
 
-    blocked = semantic_classifier(payload)
+    decision = semantic_classifier(payload)
+    blocked = decision == "block" if isinstance(decision, str) else bool(decision)
 
     return (
         blocked,
@@ -269,6 +328,42 @@ def evaluate_proxy_decision(
             blacklist_size=len(blacklist),
         )
 
+    if is_google_static_asset(target_url):
+        cache_decision(source_ip, target_url, False)
+        return ProxyPolicyDecision(
+            blocked=False,
+            cache_hit=False,
+            decision_reason="google_static_asset_allowed",
+            blacklist_size=len(blacklist),
+        )
+
+    if semantic_classifier is not None and user is not None and response_body is None:
+        focus_config = user.get("focusConfig", {})
+        decision = semantic_classifier(
+            {
+                "phase": "url",
+                "target_url": target_url,
+                "focus_summary": focus_config.get("focusSummary", ""),
+                "blocked_categories": focus_config.get("blockedCategories", []),
+                "manual_blacklist": focus_config.get("blacklist", []),
+            }
+        )
+        if decision == "block":
+            cache_decision(source_ip, target_url, True)
+            return ProxyPolicyDecision(
+                blocked=True,
+                cache_hit=False,
+                decision_reason="gemma_url_blocked",
+                blacklist_size=len(blacklist),
+            )
+        if decision == "needs_html":
+            return ProxyPolicyDecision(
+                blocked=False,
+                cache_hit=False,
+                decision_reason="gemma_needs_html",
+                blacklist_size=len(blacklist),
+            )
+
     if response_body is not None:
         metadata = extract_page_metadata(
             content_type=response_content_type,
@@ -287,7 +382,7 @@ def evaluate_proxy_decision(
         return ProxyPolicyDecision(
             blocked=semantic_blocked,
             cache_hit=False,
-            decision_reason=reason,
+            decision_reason="gemma_html_blocked" if semantic_blocked else "gemma_html_allowed",
             blacklist_size=len(blacklist),
         )
 

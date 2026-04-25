@@ -7,11 +7,12 @@ from gateway.proxy.filtering import (
     build_proxy_target_url,
     evaluate_proxy_decision,
     get_user_manual_blacklist,
+    is_google_static_asset,
     is_proxy_filtering_active,
     normalize_http_target,
     should_block_url,
 )
-from gateway.proxy.server import build_block_page
+from gateway.proxy.server import build_block_page, build_llm_cache_key
 
 
 class FrozenDateTime(real_datetime):
@@ -59,6 +60,14 @@ def test_should_block_url_matches_mongodb_blacklist_entries():
     assert should_block_url("https://youtube.com/shorts/123", blacklist)
     assert should_block_url("https://example.com/watch?sort=hot", blacklist)
     assert not should_block_url("https://example.com/docs/reference?tab=api", blacklist)
+
+
+def test_is_google_static_asset_matches_google_assets_only():
+    assert is_google_static_asset("https://www.google.com/images/branding/googlelogo/2x/googlelogo.png")
+    assert is_google_static_asset("https://ssl.gstatic.com/ui/v1/icons/mail/images/cleardot.gif")
+    assert is_google_static_asset("https://fonts.googleapis.com/css2?family=Inter")
+    assert not is_google_static_asset("https://www.google.com/search?q=games")
+    assert not is_google_static_asset("https://docs.google.com/document/d/example")
 
 
 def test_get_user_manual_blacklist_returns_normalized_manual_entries():
@@ -193,6 +202,160 @@ def test_evaluate_proxy_decision_blocks_mongodb_blacklisted_url():
         blacklist_size=1,
     )
     assert cached_calls == [("10.0.0.9", "http://reddit.com/r/all", True)]
+
+
+def test_evaluate_proxy_decision_blocks_gemma_url_classification():
+    cached_calls = []
+
+    result = evaluate_proxy_decision(
+        source_ip="10.0.0.9",
+        target_url="https://games.example.com/play",
+        path="/play",
+        query="",
+        user={
+            "focusConfig": {
+                "studyModeEnabled": True,
+                "blacklist": [],
+                "blockedCategories": ["video-games"],
+                "focusSummary": "I am studying calculus.",
+            }
+        },
+        cached_blocked=None,
+        cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
+            (source_ip, target_url, blocked)
+        ),
+        semantic_classifier=lambda payload: "block",
+    )
+
+    assert result == ProxyPolicyDecision(
+        blocked=True,
+        cache_hit=False,
+        decision_reason="gemma_url_blocked",
+        blacklist_size=0,
+    )
+    assert cached_calls == [("10.0.0.9", "https://games.example.com/play", True)]
+
+
+def test_evaluate_proxy_decision_allows_google_static_asset_without_llm():
+    cached_calls = []
+    classifier_calls = []
+
+    result = evaluate_proxy_decision(
+        source_ip="10.0.0.9",
+        target_url="https://ssl.gstatic.com/ui/v1/icons/mail/images/cleardot.gif",
+        path="/ui/v1/icons/mail/images/cleardot.gif",
+        query="",
+        user={
+            "focusConfig": {
+                "studyModeEnabled": True,
+                "blacklist": [],
+                "blockedCategories": ["social-media"],
+                "focusSummary": "I am studying calculus.",
+            }
+        },
+        cached_blocked=None,
+        cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
+            (source_ip, target_url, blocked)
+        ),
+        semantic_classifier=lambda payload: classifier_calls.append(payload) or "block",
+    )
+
+    assert result == ProxyPolicyDecision(
+        blocked=False,
+        cache_hit=False,
+        decision_reason="google_static_asset_allowed",
+        blacklist_size=0,
+    )
+    assert cached_calls == [
+        ("10.0.0.9", "https://ssl.gstatic.com/ui/v1/icons/mail/images/cleardot.gif", False)
+    ]
+    assert classifier_calls == []
+
+
+def test_build_llm_cache_key_includes_html_metadata():
+    base_payload = {
+        "phase": "html",
+        "target_url": "https://www.youtube.com/watch?v=abc",
+        "title": "Backend tutorial",
+        "description": "Learn APIs",
+        "text": "Python API tutorial",
+        "focus_summary": "I am studying backend systems.",
+        "blocked_categories": ["streaming"],
+    }
+
+    changed_payload = {
+        **base_payload,
+        "title": "Funny fail compilation",
+    }
+
+    assert build_llm_cache_key(base_payload) == build_llm_cache_key({**base_payload})
+    assert build_llm_cache_key(base_payload) != build_llm_cache_key(changed_payload)
+
+
+def test_evaluate_proxy_decision_defers_ambiguous_gemma_url_to_html():
+    cached_calls = []
+
+    result = evaluate_proxy_decision(
+        source_ip="10.0.0.9",
+        target_url="https://www.youtube.com/watch?v=abc",
+        path="/watch",
+        query="v=abc",
+        user={
+            "focusConfig": {
+                "studyModeEnabled": True,
+                "blacklist": [],
+                "blockedCategories": ["streaming"],
+                "focusSummary": "I am studying backend systems.",
+            }
+        },
+        cached_blocked=None,
+        cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
+            (source_ip, target_url, blocked)
+        ),
+        semantic_classifier=lambda payload: "needs_html",
+    )
+
+    assert result == ProxyPolicyDecision(
+        blocked=False,
+        cache_hit=False,
+        decision_reason="gemma_needs_html",
+        blacklist_size=0,
+    )
+    assert cached_calls == []
+
+
+def test_evaluate_proxy_decision_blocks_gemma_html_classification():
+    cached_calls = []
+
+    result = evaluate_proxy_decision(
+        source_ip="10.0.0.9",
+        target_url="https://www.youtube.com/watch?v=abc",
+        path="/watch",
+        query="v=abc",
+        user={
+            "focusConfig": {
+                "studyModeEnabled": True,
+                "blacklist": [],
+                "blockedCategories": ["streaming"],
+                "focusSummary": "I am studying backend systems.",
+            }
+        },
+        cached_blocked=None,
+        cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
+            (source_ip, target_url, blocked)
+        ),
+        response_body=b"<html><title>Funny fail compilation</title></html>",
+        response_content_type="text/html; charset=utf-8",
+        semantic_classifier=lambda payload: "block",
+    )
+
+    assert result == ProxyPolicyDecision(
+        blocked=True,
+        cache_hit=False,
+        decision_reason="gemma_html_blocked",
+        blacklist_size=0,
+    )
+    assert cached_calls == [("10.0.0.9", "https://www.youtube.com/watch?v=abc", True)]
 
 
 def test_evaluate_proxy_decision_blocks_during_scheduled_focus_window():

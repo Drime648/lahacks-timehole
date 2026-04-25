@@ -115,9 +115,11 @@ def build_block_page(target_url: str, reason: str) -> bytes:
     <style>
       body {{
         margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: linear-gradient(180deg, #fff8ef 0%, #f5ead8 100%);
-        color: #1c241f;
+        font-family: "Plus Jakarta Sans", "Inter", sans-serif;
+        background: radial-gradient(circle at top left, #e0e7ff, transparent 40%),
+                    radial-gradient(circle at bottom right, #fce7f3, transparent 40%),
+                    linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 100%);
+        color: #1e1b4b;
         display: grid;
         place-items: center;
         min-height: 100vh;
@@ -125,26 +127,29 @@ def build_block_page(target_url: str, reason: str) -> bytes:
       }}
       .card {{
         max-width: 720px;
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid rgba(28, 36, 31, 0.12);
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(99, 102, 241, 0.2);
         border-radius: 24px;
         padding: 28px;
-        box-shadow: 0 18px 50px rgba(53, 36, 18, 0.1);
+        box-shadow: 0 12px 30px rgba(79, 70, 229, 0.15);
       }}
       h1 {{
         margin: 0 0 12px;
         font-size: 2rem;
+        color: #4f46e5;
       }}
       p {{
         line-height: 1.65;
         margin: 0 0 12px;
+        color: #4338ca;
       }}
       code {{
         display: block;
         padding: 12px;
         border-radius: 14px;
-        background: #10231c;
-        color: #d9f4e8;
+        background: rgba(99, 102, 241, 0.1);
+        color: #6366f1;
         overflow-wrap: anywhere;
       }}
     </style>

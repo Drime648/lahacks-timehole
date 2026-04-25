@@ -1,13 +1,14 @@
 :root {
-  --bg: #f7efe2;
-  --panel: rgba(255, 252, 246, 0.88);
-  --ink: #1c241f;
-  --muted: #5c655f;
-  --line: rgba(28, 36, 31, 0.1);
-  --accent: #15765c;
-  --accent-strong: #0d5541;
-  --danger: #9a4337;
-  --shadow: 0 22px 60px rgba(53, 36, 18, 0.08);
+  --bg: #f0f4ff;
+  --panel: rgba(255, 255, 255, 0.8);
+  --ink: #1e1b4b;
+  --muted: #4338ca;
+  --line: rgba(99, 102, 241, 0.2);
+  --accent: #6366f1;
+  --accent-strong: #4f46e5;
+  --accent-soft: rgba(99, 102, 241, 0.1);
+  --danger: #f43f5e;
+  --shadow: 0 12px 30px rgba(79, 70, 229, 0.15);
 }
 
 * {
@@ -16,12 +17,13 @@
 
 body {
   margin: 0;
-  font-family: "IBM Plex Sans", "Avenir Next", sans-serif;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
   color: var(--ink);
-  background:
-    radial-gradient(circle at top left, rgba(21, 118, 92, 0.16), transparent 24%),
-    radial-gradient(circle at bottom right, rgba(154, 67, 55, 0.1), transparent 18%),
-    linear-gradient(180deg, #fff9f2 0%, var(--bg) 100%);
+  background: 
+    radial-gradient(circle at top right, rgba(99, 102, 241, 0.15), transparent 40%),
+    radial-gradient(circle at bottom left, rgba(244, 63, 94, 0.1), transparent 40%),
+    linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 50%, #dbeafe 100%);
+  min-height: 100vh;
 }
 
 button,
@@ -42,7 +44,8 @@ textarea {
   border-radius: 28px;
   border: 1px solid var(--line);
   background: var(--panel);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--shadow);
 }
 
@@ -103,7 +106,9 @@ textarea {
   width: 100%;
   text-align: left;
   padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   color: var(--ink);
   border: 1px solid var(--line);
 }
@@ -111,6 +116,7 @@ textarea {
 .tab-button.active {
   background: var(--accent);
   color: white;
+  border-color: var(--accent-strong);
 }
 
 .wizard-step {
@@ -120,12 +126,14 @@ textarea {
   padding: 14px;
   border-radius: 18px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .wizard-step.active {
-  border-color: rgba(21, 118, 92, 0.35);
-  background: rgba(21, 118, 92, 0.1);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .wizard-step.complete .wizard-index {
@@ -187,7 +195,7 @@ textarea {
 h1,
 h2,
 h3 {
-  font-family: "IBM Plex Serif", Georgia, serif;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
 }
 
 h1 {
@@ -219,7 +227,9 @@ input:not([type="checkbox"]):not([type="radio"]),
 textarea {
   width: 100%;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   padding: 13px 15px;
 }
 
@@ -235,11 +245,12 @@ button {
   border: none;
   cursor: pointer;
   border-radius: 999px;
-  transition: transform 140ms ease, background 140ms ease;
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 button:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
 }
 
 button[type="submit"],
@@ -248,21 +259,24 @@ button[type="submit"],
 .secondary-button,
 .danger-button {
   padding: 12px 20px;
+  font-weight: 600;
 }
 
 button[type="submit"] {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   color: white;
 }
 
 .secondary-button {
-  background: rgba(21, 118, 92, 0.12);
+  background: var(--accent-soft);
   color: var(--accent-strong);
+  border: 1px solid var(--line);
 }
 
 .danger-button {
-  background: rgba(154, 67, 55, 0.12);
+  background: rgba(244, 63, 94, 0.1);
   color: var(--danger);
+  border: 1px solid rgba(244, 63, 94, 0.2);
 }
 
 .toggle-row {
@@ -309,7 +323,9 @@ button[type="submit"] {
   padding: 16px;
   border-radius: 20px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.64);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .schedule-calendar {
@@ -318,7 +334,8 @@ button[type="submit"] {
   gap: 4px;
   background: var(--line);
   padding: 1px;
-  border-radius: 8px;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .schedule-time-column,
@@ -330,7 +347,7 @@ button[type="submit"] {
 
 .calendar-corner,
 .calendar-day-heading {
-  background: var(--bg);
+  background: #f8faff;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -343,7 +360,7 @@ button[type="submit"] {
 .calendar-day-heading span { font-size: 0.65rem; color: var(--muted); }
 
 .time-label {
-  background: var(--bg);
+  background: #f8faff;
   font-size: 0.7rem;
   color: var(--muted);
   display: flex;
@@ -366,15 +383,15 @@ button[type="submit"] {
 }
 
 .calendar-slot.occupied {
-  background: linear-gradient(180deg, rgba(21, 118, 92, 0.9), rgba(19, 92, 72, 0.92));
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
 }
 
 .calendar-slot.preview {
-  background: rgba(21, 118, 92, 0.35);
+  background: var(--accent-soft);
 }
 
 .calendar-slot.preview-remove {
-  background: rgba(154, 67, 55, 0.3);
+  background: rgba(244, 63, 94, 0.2);
 }
 
 .schedule-legend {
@@ -400,15 +417,15 @@ button[type="submit"] {
 }
 
 .legend-swatch.selected {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
 }
 
 .legend-swatch.preview {
-  background: rgba(21, 118, 92, 0.35);
+  background: var(--accent-soft);
 }
 
 .legend-swatch.remove {
-  background: rgba(154, 67, 55, 0.3);
+  background: rgba(244, 63, 94, 0.2);
 }
 
 .day-grid,
@@ -444,7 +461,9 @@ button[type="submit"] {
   padding: 16px;
   border-radius: 20px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.68);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .metric-card span {
@@ -455,6 +474,7 @@ button[type="submit"] {
 
 .metric-card strong {
   font-size: 2rem;
+  color: var(--accent-strong);
 }
 
 .day-chip,
@@ -465,15 +485,18 @@ button[type="submit"] {
   padding: 12px 16px;
   border: 1px solid var(--line);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.68);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   cursor: pointer;
   transition: all 140ms ease;
 }
 
 .category-pill:hover {
   background: white;
-  border-color: rgba(21, 118, 92, 0.3);
-  transform: translateY(-1px);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
 }
 
 .category-pill input[type="checkbox"] {
@@ -484,6 +507,7 @@ button[type="submit"] {
 .category-pill span {
   flex: 1;
   font-size: 1.05rem;
+  font-weight: 500;
 }
 
 .suggestions {
@@ -497,8 +521,9 @@ button[type="submit"] {
 
 .suggestion-chip {
   text-align: left;
-  background: rgba(21, 118, 92, 0.12);
+  background: var(--accent-soft);
   color: var(--accent-strong);
+  border: 1px solid var(--line);
 }
 
 .empty-state {
@@ -506,16 +531,17 @@ button[type="submit"] {
   border-radius: 16px;
   border: 1px dashed var(--line);
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.52);
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .prompt-box pre {
   margin: 0;
   white-space: pre-wrap;
-  background: #10231c;
-  color: #d9f4e8;
+  background: #f1f5f9;
+  color: var(--ink);
   border-radius: 18px;
   padding: 16px;
+  border: 1px solid var(--line);
 }
 
 .bar-row {
@@ -535,18 +561,18 @@ button[type="submit"] {
 .bar-track {
   height: 10px;
   border-radius: 999px;
-  background: rgba(28, 36, 31, 0.08);
+  background: var(--line);
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), #63b796);
+  background: linear-gradient(90deg, var(--accent), #818cf8);
 }
 
 .bar-fill.secondary {
-  background: linear-gradient(90deg, #2d5d91, #6ea3dc);
+  background: linear-gradient(90deg, var(--muted), #6366f1);
 }
 
 .activity-list {
@@ -560,7 +586,9 @@ button[type="submit"] {
   padding: 14px;
   border-radius: 18px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .activity-row-meta,
@@ -588,8 +616,18 @@ button[type="submit"] {
   gap: 16px;
   padding: 18px 20px;
   border-radius: 22px;
-  border: 1px solid rgba(21, 118, 92, 0.22);
-  background: linear-gradient(135deg, rgba(21, 118, 92, 0.12), rgba(255, 255, 255, 0.82));
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, #6366f1, #a5b4fc);
+  color: white;
+  box-shadow: var(--shadow);
+}
+
+.focus-mode-banner h3 {
+  color: white;
+}
+
+.focus-mode-banner p {
+  color: rgba(255, 255, 255, 0.9) !important;
 }
 
 .log-row.blocked {
@@ -608,7 +646,9 @@ button[type="submit"] {
 .meta-box {
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--line);
 }
 
@@ -626,8 +666,9 @@ button[type="submit"] {
 .error-banner {
   padding: 12px 14px;
   border-radius: 16px;
-  background: rgba(154, 67, 55, 0.12);
+  background: rgba(244, 63, 94, 0.1);
   color: var(--danger);
+  border: 1px solid rgba(244, 63, 94, 0.2);
 }
 
 .instructions-list {
@@ -641,10 +682,11 @@ button[type="submit"] {
   display: inline-block;
   padding: 12px 16px;
   border-radius: 16px;
-  background: rgba(21, 118, 92, 0.12);
+  background: var(--accent-soft);
   color: var(--accent-strong);
   text-decoration: none;
   font-weight: 700;
+  border: 1px solid var(--line);
 }
 
 .schedule-summary-list {
@@ -656,6 +698,8 @@ button[type="submit"] {
   border-radius: 28px;
   border: 1px solid var(--line);
   background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--shadow);
 }
 

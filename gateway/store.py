@@ -7,7 +7,7 @@ from typing import Any
 
 from pymongo import MongoClient
 
-from gateway.filtering import normalize_blacklist
+from gateway.dns.filtering import normalize_blacklist
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB_NAME = os.environ.get("MONGODB_DB_NAME", "timehole")

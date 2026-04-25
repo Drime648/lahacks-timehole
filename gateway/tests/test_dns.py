@@ -5,7 +5,7 @@ from datetime import datetime as real_datetime
 from dnslib import A, AAAA, DNSRecord, QTYPE, RR
 
 from gateway.cache import DecisionCache
-from gateway.filtering import (
+from gateway.dns.filtering import (
     PolicyDecision,
     evaluate_policy_decision,
     get_user_blacklist,

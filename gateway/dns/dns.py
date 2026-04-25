@@ -9,7 +9,7 @@ from typing import Final
 from dnslib import A, AAAA, DNSHeader, DNSQuestion, DNSRecord, QTYPE, RR
 
 from gateway.cache import DecisionCache
-from gateway.filtering import evaluate_policy_decision
+from gateway.dns.filtering import evaluate_policy_decision
 from gateway.store import MongoGatewayStore
 
 LISTEN_HOST: Final[str] = os.environ.get("DNS_LISTEN_HOST", "0.0.0.0")

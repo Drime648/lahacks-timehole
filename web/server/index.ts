@@ -373,7 +373,7 @@ app.get("/api/dns-dashboard", async (request, response) => {
       cacheHit: log.cacheHit,
       decisionReason: log.decisionReason,
       responseCode: log.statusCode == null ? null : String(log.statusCode),
-      answerCount: 0,
+      answerCount: [log.host].filter(Boolean).length,
       answers: [log.host].filter(Boolean),
       upstreamLatencyMs: log.upstreamLatencyMs,
       error: log.error,

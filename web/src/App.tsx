@@ -856,15 +856,15 @@ function DashboardHome({
                     <span>{log.queryType}</span>
                   </div>
                   <div className="log-row-meta-grid">
-                    <span className="status">{log.blocked ? "Blocked" : "Allowed"}</span>
-                    <span className="cache">{log.cacheHit ? "Cache hit" : "Cache miss"}</span>
-                    <span className="reason">{log.decisionReason || "n/a"}</span>
-                    <span className="code">{log.responseCode || "n/a"}</span>
-                    <span className="latency">{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs} ms` : "no upstream"}</span>
-                    <span className="timestamp">{new Date(log.createdAt).toLocaleString()}</span>
-                    <span className="user">{log.userMatched ? `user ${log.username}` : "no matched user"}</span>
-                    <span className="answers">{log.answerCount ?? 0} answers</span>
-                    <span className="details">{(log.answers || []).slice(0, 3).join(", ") || "no answers"}</span>
+                    <span className="status">Status: {log.blocked ? "Blocked" : "Allowed"}</span>
+                    <span className="cache">Cache: {log.cacheHit ? "hit" : "miss"}</span>
+                    <span className="reason">Reason: {log.decisionReason || "n/a"}</span>
+                    <span className="code">HTTP {log.responseCode || "n/a"}</span>
+                    <span className="latency">Latency: {log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs} ms` : "n/a"}</span>
+                    <span className="timestamp">Date: {new Date(log.createdAt).toLocaleString()}</span>
+                    <span className="user">User: {log.userMatched ? log.username : "none"}</span>
+                    <span className="answers">{log.answerCount ?? 0} {log.answerCount == 1 ? "answer" : "answers"}</span>
+                    <span className="details">Responses: {(log.answers || []).slice(0, 3).join(", ") || "none"}</span>
                   </div>
                 </div>
               );

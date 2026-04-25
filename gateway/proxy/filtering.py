@@ -116,36 +116,6 @@ def build_proxy_target_url(scheme: str, host: str, path: str, query: str) -> str
     return urlunsplit((scheme, host, normalized_path, query, ""))
 
 
-def get_user_blacklist(user: dict[str, Any] | None) -> list[str]:
-    if user is None:
-        return []
-
-    focus_config = user.get("focusConfig", {})
-    if not isinstance(focus_config, dict):
-        return []
-
-    blacklist = focus_config.get("blacklist", [])
-    if not isinstance(blacklist, list):
-        return []
-
-    return [str(entry).lower() for entry in blacklist]
-
-
-def get_user_manual_blacklist(user: dict[str, Any] | None) -> list[str]:
-    if user is None:
-        return []
-
-    focus_config = user.get("focusConfig", {})
-    if not isinstance(focus_config, dict):
-        return []
-
-    blacklist = focus_config.get("manualBlacklist", [])
-    if not isinstance(blacklist, list):
-        return []
-
-    return [str(entry).lower() for entry in blacklist]
-
-
 def normalize_http_target(
     *,
     path: str,
@@ -190,23 +160,44 @@ def normalize_http_target(
     )
 
 
-def should_block_url(target_url: str, blacklist: list[str]) -> bool:
-    lowered_url = target_url.lower()
-    return any(entry in lowered_url for entry in blacklist)
+def is_likely_main_document_request(
+    *,
+    method: str,
+    path: str,
+    headers: dict[str, str] | None = None,
+) -> bool:
+    normalized_method = method.upper()
+    if normalized_method not in {"GET", "HEAD"}:
+        return False
 
+    parsed = urlsplit(path)
+    normalized_path = (parsed.path or "/").lower()
+    if normalized_path.endswith(STATIC_ASSET_EXTENSIONS):
+        return False
 
-def is_google_static_asset(target_url: str) -> bool:
-    parsed = urlsplit(target_url)
-    host = parsed.hostname or ""
-    host = host.lower().removeprefix("www.")
-    path = (parsed.path or "/").lower()
+    lowered_headers = {key.lower(): value for key, value in (headers or {}).items()}
+    sec_fetch_dest = lowered_headers.get("sec-fetch-dest", "").strip().lower()
+    if sec_fetch_dest and sec_fetch_dest not in {"document", "iframe", "frame"}:
+        return False
 
-    if host == "google.com" or host.endswith(".google.com"):
-        return path.endswith(STATIC_ASSET_EXTENSIONS) or path.startswith(
-            GOOGLE_STATIC_PATH_PREFIXES
-        )
+    sec_fetch_mode = lowered_headers.get("sec-fetch-mode", "").strip().lower()
+    if sec_fetch_mode == "navigate":
+        return True
 
-    return any(host == static_host or host.endswith(f".{static_host}") for static_host in GOOGLE_STATIC_HOSTS)
+    accept = lowered_headers.get("accept", "").lower()
+    if "text/html" in accept or "application/xhtml+xml" in accept:
+        return True
+
+    if accept and all(token not in accept for token in ("text/html", "application/xhtml+xml")):
+        return False
+
+    last_segment = normalized_path.rsplit("/", 1)[-1]
+    if "." in last_segment:
+        extension = f".{last_segment.rsplit('.', 1)[-1]}"
+        if extension in STATIC_ASSET_EXTENSIONS:
+            return False
+
+    return True
 
 
 def extract_page_metadata(
@@ -271,7 +262,6 @@ def evaluate_semantic_response(
         "text": metadata.get("text", ""),
         "focus_summary": focus_config.get("focusSummary", ""),
         "blocked_categories": focus_config.get("blockedCategories", []),
-        "manual_blacklist": focus_config.get("blacklist", []),
     }
 
     if semantic_classifier is None:
@@ -305,7 +295,7 @@ def evaluate_proxy_decision(
             blocked=False,
             cache_hit=False,
             decision_reason="focus_inactive",
-            blacklist_size=len(blacklist),
+            blacklist_size=0,
         )
 
     if cached_blocked is not None:
@@ -313,29 +303,19 @@ def evaluate_proxy_decision(
             blocked=cached_blocked,
             cache_hit=True,
             decision_reason="cache_blocked" if cached_blocked else "cache_allowed",
-            blacklist_size=len(blacklist),
-        )
-    blocked = should_block_url(target_url, blacklist)
-
-    if blocked:
-        cache_decision(source_ip, target_url, True)
-        return ProxyPolicyDecision(
-            blocked=True,
-            cache_hit=False,
-            decision_reason="blacklist_match",
-            blacklist_size=len(blacklist),
+            blacklist_size=0,
         )
 
-    if is_google_static_asset(target_url):
+    if semantic_classifier is None or user is None:
         cache_decision(source_ip, target_url, False)
         return ProxyPolicyDecision(
             blocked=False,
             cache_hit=False,
-            decision_reason="google_static_asset_allowed",
-            blacklist_size=len(blacklist),
+            decision_reason="semantic_classifier_missing",
+            blacklist_size=0,
         )
 
-    if semantic_classifier is not None and user is not None and response_body is None:
+    if response_body is None:
         focus_config = user.get("focusConfig", {})
         decision = semantic_classifier(
             {
@@ -343,7 +323,6 @@ def evaluate_proxy_decision(
                 "target_url": target_url,
                 "focus_summary": focus_config.get("focusSummary", ""),
                 "blocked_categories": focus_config.get("blockedCategories", []),
-                "manual_blacklist": focus_config.get("blacklist", []),
             }
         )
         if decision == "block":
@@ -352,21 +331,37 @@ def evaluate_proxy_decision(
                 blocked=True,
                 cache_hit=False,
                 decision_reason="gemma_url_blocked",
-                blacklist_size=len(blacklist),
+                blacklist_size=0,
             )
         if decision == "needs_html":
             return ProxyPolicyDecision(
                 blocked=False,
                 cache_hit=False,
                 decision_reason="gemma_needs_html",
-                blacklist_size=len(blacklist),
+                blacklist_size=0,
             )
+        cache_decision(source_ip, target_url, False)
+        return ProxyPolicyDecision(
+            blocked=False,
+            cache_hit=False,
+            decision_reason="gemma_url_allowed",
+            blacklist_size=0,
+        )
 
     if response_body is not None:
         metadata = extract_page_metadata(
             content_type=response_content_type,
             response_body=response_body,
         )
+
+        if not any(metadata.values()):
+            cache_decision(source_ip, target_url, False)
+            return ProxyPolicyDecision(
+                blocked=False,
+                cache_hit=False,
+                decision_reason="allowed_non_html_response",
+                blacklist_size=0,
+            )
 
         semantic_blocked, reason = evaluate_semantic_response(
             target_url=target_url,
@@ -381,7 +376,7 @@ def evaluate_proxy_decision(
             blocked=semantic_blocked,
             cache_hit=False,
             decision_reason="gemma_html_blocked" if semantic_blocked else "gemma_html_allowed",
-            blacklist_size=len(blacklist),
+            blacklist_size=0,
         )
 
     cache_decision(source_ip, target_url, False)
@@ -390,5 +385,5 @@ def evaluate_proxy_decision(
         blocked=False,
         cache_hit=False,
         decision_reason="allowed_no_response_to_analyze",
-        blacklist_size=len(blacklist),
+        blacklist_size=0,
     )

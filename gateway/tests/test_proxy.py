@@ -6,11 +6,9 @@ from gateway.proxy.filtering import (
     ProxyPolicyDecision,
     build_proxy_target_url,
     evaluate_proxy_decision,
-    get_user_manual_blacklist,
-    is_google_static_asset,
+    is_likely_main_document_request,
     is_proxy_filtering_active,
     normalize_http_target,
-    should_block_url,
 )
 from gateway.proxy.server import build_block_page, build_llm_cache_key
 
@@ -53,29 +51,43 @@ def test_normalize_http_target_from_origin_form():
     assert target_url == "http://example.com/docs/reference?tab=api"
 
 
-def test_should_block_url_matches_mongodb_blacklist_entries():
-    blacklist = ["reddit", "/shorts", "sort=hot"]
-
-    assert should_block_url("https://www.reddit.com/r/all", blacklist)
-    assert should_block_url("https://youtube.com/shorts/123", blacklist)
-    assert should_block_url("https://example.com/watch?sort=hot", blacklist)
-    assert not should_block_url("https://example.com/docs/reference?tab=api", blacklist)
-
-
-def test_is_google_static_asset_matches_google_assets_only():
-    assert is_google_static_asset("https://www.google.com/images/branding/googlelogo/2x/googlelogo.png")
-    assert is_google_static_asset("https://ssl.gstatic.com/ui/v1/icons/mail/images/cleardot.gif")
-    assert is_google_static_asset("https://fonts.googleapis.com/css2?family=Inter")
-    assert not is_google_static_asset("https://www.google.com/search?q=games")
-    assert not is_google_static_asset("https://docs.google.com/document/d/example")
+def test_is_likely_main_document_request_accepts_html_navigation():
+    assert is_likely_main_document_request(
+        method="GET",
+        path="https://example.com/docs",
+        headers={
+            "Accept": "text/html,application/xhtml+xml",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Dest": "document",
+        },
+    )
 
 
-def test_get_user_manual_blacklist_returns_normalized_manual_entries():
-    assert get_user_manual_blacklist(None) == []
-    assert get_user_manual_blacklist({"focusConfig": "invalid"}) == []
-    assert (
-        get_user_manual_blacklist({"focusConfig": {"manualBlacklist": ["JetPunk", "Reddit"]}})
-        == ["jetpunk", "reddit"]
+def test_is_likely_main_document_request_rejects_static_asset_extensions():
+    assert not is_likely_main_document_request(
+        method="GET",
+        path="https://example.com/assets/app.js",
+        headers={"Accept": "*/*", "Sec-Fetch-Dest": "script"},
+    )
+
+
+def test_is_likely_main_document_request_rejects_fetch_api_calls():
+    assert not is_likely_main_document_request(
+        method="GET",
+        path="https://example.com/api/feed",
+        headers={
+            "Accept": "application/json",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+        },
+    )
+
+
+def test_is_likely_main_document_request_rejects_post_requests():
+    assert not is_likely_main_document_request(
+        method="POST",
+        path="https://example.com/form-submit",
+        headers={"Accept": "text/html"},
     )
 
 
@@ -113,7 +125,6 @@ def test_evaluate_proxy_decision_bypasses_when_focus_inactive():
             "focusConfig": {
                 "studyModeEnabled": False,
                 "schedules": [],
-                "blacklist": ["reddit"],
             }
         },
         cached_blocked=None,
@@ -125,11 +136,11 @@ def test_evaluate_proxy_decision_bypasses_when_focus_inactive():
         blocked=False,
         cache_hit=False,
         decision_reason="focus_inactive",
-        blacklist_size=1,
+        blacklist_size=0,
     )
 
 
-def test_evaluate_proxy_decision_blacklist_waits_for_active_focus_window():
+def test_evaluate_proxy_decision_classifier_waits_for_active_focus_window():
     cached_calls = []
 
     result = evaluate_proxy_decision(
@@ -141,8 +152,6 @@ def test_evaluate_proxy_decision_blacklist_waits_for_active_focus_window():
             "focusConfig": {
                 "studyModeEnabled": False,
                 "schedules": [],
-                "blacklist": ["jetpunk"],
-                "manualBlacklist": ["jetpunk"],
             }
         },
         cached_blocked=None,
@@ -150,13 +159,14 @@ def test_evaluate_proxy_decision_blacklist_waits_for_active_focus_window():
             (source_ip, target_url, blocked)
         ),
         now_provider=lambda timezone_name: real_datetime(2026, 4, 27, 1, 0),
+        semantic_classifier=lambda payload: "block",
     )
 
     assert result == ProxyPolicyDecision(
         blocked=False,
         cache_hit=False,
         decision_reason="focus_inactive",
-        blacklist_size=1,
+        blacklist_size=0,
     )
     assert cached_calls == []
 
@@ -167,7 +177,7 @@ def test_evaluate_proxy_decision_uses_cached_result():
         target_url="http://reddit.com/r/all",
         path="/r/all",
         query="",
-        user={"focusConfig": {"studyModeEnabled": True, "schedules": [], "blacklist": ["reddit"]}},
+        user={"focusConfig": {"studyModeEnabled": True, "schedules": []}},
         cached_blocked=True,
         cache_decision=lambda source_ip, target_url, blocked: None,
     )
@@ -176,32 +186,33 @@ def test_evaluate_proxy_decision_uses_cached_result():
         blocked=True,
         cache_hit=True,
         decision_reason="cache_blocked",
-        blacklist_size=1,
+        blacklist_size=0,
     )
 
 
-def test_evaluate_proxy_decision_blocks_mongodb_blacklisted_url():
+def test_evaluate_proxy_decision_allows_from_gemma_url_classification():
     cached_calls = []
 
     result = evaluate_proxy_decision(
         source_ip="10.0.0.9",
-        target_url="http://reddit.com/r/all",
-        path="/r/all",
+        target_url="https://docs.example.com/reference",
+        path="/reference",
         query="",
-        user={"focusConfig": {"studyModeEnabled": True, "schedules": [], "blacklist": ["reddit"]}},
+        user={"focusConfig": {"studyModeEnabled": True, "schedules": []}},
         cached_blocked=None,
         cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
             (source_ip, target_url, blocked)
         ),
+        semantic_classifier=lambda payload: "allow",
     )
 
     assert result == ProxyPolicyDecision(
-        blocked=True,
+        blocked=False,
         cache_hit=False,
-        decision_reason="blacklist_match",
-        blacklist_size=1,
+        decision_reason="gemma_url_allowed",
+        blacklist_size=0,
     )
-    assert cached_calls == [("10.0.0.9", "http://reddit.com/r/all", True)]
+    assert cached_calls == [("10.0.0.9", "https://docs.example.com/reference", False)]
 
 
 def test_evaluate_proxy_decision_blocks_gemma_url_classification():
@@ -215,7 +226,6 @@ def test_evaluate_proxy_decision_blocks_gemma_url_classification():
         user={
             "focusConfig": {
                 "studyModeEnabled": True,
-                "blacklist": [],
                 "blockedCategories": ["video-games"],
                 "focusSummary": "I am studying calculus.",
             }
@@ -234,42 +244,6 @@ def test_evaluate_proxy_decision_blocks_gemma_url_classification():
         blacklist_size=0,
     )
     assert cached_calls == [("10.0.0.9", "https://games.example.com/play", True)]
-
-
-def test_evaluate_proxy_decision_allows_google_static_asset_without_llm():
-    cached_calls = []
-    classifier_calls = []
-
-    result = evaluate_proxy_decision(
-        source_ip="10.0.0.9",
-        target_url="https://ssl.gstatic.com/ui/v1/icons/mail/images/cleardot.gif",
-        path="/ui/v1/icons/mail/images/cleardot.gif",
-        query="",
-        user={
-            "focusConfig": {
-                "studyModeEnabled": True,
-                "blacklist": [],
-                "blockedCategories": ["social-media"],
-                "focusSummary": "I am studying calculus.",
-            }
-        },
-        cached_blocked=None,
-        cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
-            (source_ip, target_url, blocked)
-        ),
-        semantic_classifier=lambda payload: classifier_calls.append(payload) or "block",
-    )
-
-    assert result == ProxyPolicyDecision(
-        blocked=False,
-        cache_hit=False,
-        decision_reason="google_static_asset_allowed",
-        blacklist_size=0,
-    )
-    assert cached_calls == [
-        ("10.0.0.9", "https://ssl.gstatic.com/ui/v1/icons/mail/images/cleardot.gif", False)
-    ]
-    assert classifier_calls == []
 
 
 def test_build_llm_cache_key_includes_html_metadata():
@@ -303,7 +277,6 @@ def test_evaluate_proxy_decision_defers_ambiguous_gemma_url_to_html():
         user={
             "focusConfig": {
                 "studyModeEnabled": True,
-                "blacklist": [],
                 "blockedCategories": ["streaming"],
                 "focusSummary": "I am studying backend systems.",
             }
@@ -335,7 +308,6 @@ def test_evaluate_proxy_decision_blocks_gemma_html_classification():
         user={
             "focusConfig": {
                 "studyModeEnabled": True,
-                "blacklist": [],
                 "blockedCategories": ["streaming"],
                 "focusSummary": "I am studying backend systems.",
             }
@@ -371,7 +343,6 @@ def test_evaluate_proxy_decision_blocks_during_scheduled_focus_window():
                 "studyModeEnabled": False,
                 "timezone": "America/Los_Angeles",
                 "schedules": [{"days": [1], "start": "09:00", "end": "11:00"}],
-                "blacklist": ["jetpunk"],
             }
         },
         cached_blocked=None,
@@ -379,39 +350,43 @@ def test_evaluate_proxy_decision_blocks_during_scheduled_focus_window():
             (source_ip, target_url, blocked)
         ),
         now_provider=lambda timezone_name: FrozenDateTime.now(),
+        semantic_classifier=lambda payload: "block",
     )
 
     assert result == ProxyPolicyDecision(
         blocked=True,
         cache_hit=False,
-        decision_reason="blacklist_match",
-        blacklist_size=1,
+        decision_reason="gemma_url_blocked",
+        blacklist_size=0,
     )
     assert cached_calls == [("10.0.0.9", "https://www.jetpunk.com/quizzes", True)]
 
 
-def test_evaluate_proxy_decision_allows_clean_path():
+def test_evaluate_proxy_decision_allows_non_html_response_after_needs_html():
     cached_calls = []
 
     result = evaluate_proxy_decision(
         source_ip="10.0.0.9",
-        target_url="http://example.com/docs/reference?tab=api",
-        path="/docs/reference",
-        query="tab=api",
-        user={"focusConfig": {"studyModeEnabled": True, "schedules": [], "blacklist": ["reddit"]}},
+        target_url="http://example.com/data.json",
+        path="/data.json",
+        query="",
+        user={"focusConfig": {"studyModeEnabled": True, "schedules": []}},
         cached_blocked=None,
         cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
             (source_ip, target_url, blocked)
         ),
+        response_body=b'{"ok": true}',
+        response_content_type="application/json",
+        semantic_classifier=lambda payload: "block",
     )
 
     assert result == ProxyPolicyDecision(
         blocked=False,
         cache_hit=False,
-        decision_reason="allowed_no_response_to_analyze",
-        blacklist_size=1,
+        decision_reason="allowed_non_html_response",
+        blacklist_size=0,
     )
-    assert cached_calls == [("10.0.0.9", "http://example.com/docs/reference?tab=api", False)]
+    assert cached_calls == [("10.0.0.9", "http://example.com/data.json", False)]
 
 
 def test_build_block_page_contains_get_back_on_task_message():

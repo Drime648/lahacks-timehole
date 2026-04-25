@@ -9,13 +9,12 @@ Current behavior:
   - host
   - URL path
   - query string
-- applies the user's Mongo-backed effective blacklist
 - only filters when the user's focus mode is active
 - supports HTTPS `CONNECT`
 - performs HTTPS MITM interception using a locally generated TimeHole root CA
 - can inspect encrypted HTTPS request URLs once the CA is trusted in the browser
-- can call a Gemma-compatible classifier for URL and HTML-response decisions
-- automatically allows Google static assets without calling Gemma
+- uses Gemma through the Gemini API for URL and HTML-response decisions
+- caches URL and HTML classifier results in memory by focus-config version
 - exposes the root CA download at `/__timehole/ca.crt`
 
 ## Run
@@ -30,23 +29,17 @@ python3 gateway/proxy/main.py
 
 ## Gemma classification
 
-The proxy can use Gemma for agentic focus classification while filtering is active.
+The proxy uses Gemma for agentic focus classification while filtering is active.
 It first classifies the URL. If Gemma returns `needs_html`, the proxy fetches the
 upstream page, extracts HTML title/description/text, and asks Gemma again before
 relaying or blocking the response.
 
-Gemma decisions are cached in memory using the same proxy cache TTL. URL-stage
-decisions are keyed by URL and focus config. HTML-stage decisions are keyed by
-URL, focus config, and extracted metadata. Saving focus settings changes the
-config version, so old LLM decisions are ignored automatically.
+Gemma decisions are cached in memory using the same proxy cache TTL. Final allow
+or block decisions are cached by URL and focus config, so once Gemma approves or
+blocks a URL it does not need to run again until the cache expires or the focus
+config changes. Intermediate LLM outputs are also cached by payload hash.
 
-Google static asset requests, such as `gstatic.com`, `fonts.googleapis.com`, and
-asset-looking paths under `google.com`, are allowed before the Gemma classifier
-runs. Google Search, Docs, and other non-static Google pages still go through the
-normal filtering flow.
-
-By default this is off so the proxy can run without a model API key. To use
-hosted Gemma through the Gemini API:
+To use hosted Gemma through the Gemini API:
 
 ```bash
 export PROXY_ENABLE_GEMMA_CLASSIFIER=true

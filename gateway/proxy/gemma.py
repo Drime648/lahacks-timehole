@@ -77,7 +77,11 @@ class GeminiGemmaClassifier:
         phase = str(payload.get("phase", "url"))
         prompt = self._build_prompt(payload)
         response_text = self._generate_content(prompt)
-        logging.info("Gemma raw response: %s", response_text)
+        logging.info(
+            "Gemma decision for %s: %s",
+            payload.get("target_url", ""),
+            response_text,
+        )
         return normalize_semantic_decision(
             response_text,
             allow_needs_html=phase == "url",
@@ -97,7 +101,11 @@ class GeminiGemmaClassifier:
             return (
                 "You are a conservative web-focus classifier for a productivity proxy.\n"
                 "Only block a webpage when the content is clearly, specifically, and confidently off-topic for the user's focus.\n"
-                "If there is meaningful ambiguity, educational value, research value, documentation value, community-help value, or plausible productivity value, choose ALLOW.\n"
+                "Be globally lenient at the HTML stage. If there is any meaningful ambiguity, choose ALLOW.\n"
+                "If there is educational value, research value, documentation value, community-help value, plausible productivity value, or incomplete evidence, choose ALLOW.\n"
+                "Generic homepages, feeds, search results, dashboards, category pages, and landing pages should usually be ALLOW unless they are explicitly and strongly off-topic.\n"
+                "Do not block based on weak signals, broad platform identity, or the mere presence of entertainment-adjacent words.\n"
+                "Only choose BLOCK when a reasonable person would say the actual page is obviously recreational, distracting, or unrelated to the user's stated focus.\n"
                 "Do not block a page only because the domain can contain distractions. Judge the actual page content.\n"
                 "Examples: a programming subreddit, technical YouTube tutorial, Google Docs page, or research search results should usually be ALLOW.\n"
                 "Examples: meme feeds, celebrity gossip, casual entertainment videos, shopping browsing, and clearly recreational scrolling should usually be BLOCK.\n"
@@ -126,7 +134,6 @@ class GeminiGemmaClassifier:
         )
 
     def _generate_content(self, prompt: str) -> str:
-        logging.info("Gemma prompt:\n%s", prompt)
         request = urllib.request.Request(
             url=f"{self.api_url}/models/{self.model}:generateContent",
             data=json.dumps(

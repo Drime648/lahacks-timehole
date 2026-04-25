@@ -83,6 +83,30 @@ def test_is_likely_main_document_request_rejects_fetch_api_calls():
     )
 
 
+def test_is_likely_main_document_request_accepts_reddit_spa_content_fetch():
+    assert is_likely_main_document_request(
+        method="GET",
+        path="https://www.reddit.com/r/gaming",
+        headers={
+            "Accept": "*/*",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+        },
+    )
+
+
+def test_is_likely_main_document_request_rejects_reddit_json_api_fetch():
+    assert not is_likely_main_document_request(
+        method="GET",
+        path="https://www.reddit.com/api/morechildren",
+        headers={
+            "Accept": "application/json",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+        },
+    )
+
+
 def test_is_likely_main_document_request_rejects_post_requests():
     assert not is_likely_main_document_request(
         method="POST",

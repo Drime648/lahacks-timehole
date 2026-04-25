@@ -99,8 +99,13 @@ gemma_rate_limiter = SlidingWindowRateLimiter(
 )
 
 
-def should_log_proxy_event(decision_reason: str) -> bool:
-    return decision_reason.startswith("gemma_")
+def should_log_proxy_event(
+    *,
+    decision_reason: str,
+    cache_hit: bool,
+    gemma_response: str | None,
+) -> bool:
+    return cache_hit or gemma_response is not None or decision_reason.startswith("gemma_")
 
 
 def parse_host_port(authority: str, default_port: int) -> tuple[str, int]:
@@ -418,7 +423,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         response_body: bytes | None = None,
         response_content_type: str | None = None,
     ):
-        return evaluate_proxy_decision(
+        policy = evaluate_proxy_decision(
             source_ip=source_ip,
             target_url=target_url,
             path=path,
@@ -439,6 +444,9 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 payload=payload,
             ),
         )
+        if policy.cache_hit and getattr(self, "_latest_gemma_response", None) is None:
+            self._latest_gemma_response = "BLOCK" if policy.blocked else "ALLOW"
+        return policy
 
     def _non_document_policy(
         self,
@@ -1099,7 +1107,12 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         mitm_enabled: bool,
         error: str | None,
     ) -> None:
-        if not should_log_proxy_event(decision_reason):
+        latest_gemma_response = getattr(self, "_latest_gemma_response", None)
+        if not should_log_proxy_event(
+            decision_reason=decision_reason,
+            cache_hit=cache_hit,
+            gemma_response=latest_gemma_response,
+        ):
             return
 
         store.log_proxy_event(
@@ -1115,7 +1128,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             blocked=blocked,
             cache_hit=cache_hit,
             decision_reason=decision_reason,
-            gemma_response=getattr(self, "_latest_gemma_response", None),
+            gemma_response=latest_gemma_response,
             status_code=status_code,
             upstream_latency_ms=upstream_latency_ms,
             https_tunnel=https_tunnel,

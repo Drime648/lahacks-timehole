@@ -305,17 +305,62 @@ def test_sliding_window_rate_limiter_caps_calls_within_window():
 
 
 def test_proxy_logs_only_llm_decision_events():
-    assert should_log_proxy_event("gemma_url_allowed")
-    assert should_log_proxy_event("gemma_url_blocked")
-    assert should_log_proxy_event("gemma_html_allowed")
-    assert should_log_proxy_event("gemma_html_blocked")
-    assert should_log_proxy_event("gemma_needs_html")
+    assert should_log_proxy_event(
+        decision_reason="gemma_url_allowed",
+        cache_hit=False,
+        gemma_response="ALLOW",
+    )
+    assert should_log_proxy_event(
+        decision_reason="gemma_url_blocked",
+        cache_hit=False,
+        gemma_response="BLOCK",
+    )
+    assert should_log_proxy_event(
+        decision_reason="gemma_html_allowed",
+        cache_hit=False,
+        gemma_response="ALLOW",
+    )
+    assert should_log_proxy_event(
+        decision_reason="gemma_html_blocked",
+        cache_hit=False,
+        gemma_response="BLOCK",
+    )
+    assert should_log_proxy_event(
+        decision_reason="gemma_needs_html",
+        cache_hit=False,
+        gemma_response="NEEDS_HTML",
+    )
+    assert should_log_proxy_event(
+        decision_reason="cache_allowed",
+        cache_hit=True,
+        gemma_response="ALLOW",
+    )
+    assert should_log_proxy_event(
+        decision_reason="cache_blocked",
+        cache_hit=True,
+        gemma_response="BLOCK",
+    )
 
-    assert not should_log_proxy_event("focus_inactive")
-    assert not should_log_proxy_event("cache_allowed")
-    assert not should_log_proxy_event("cache_blocked")
-    assert not should_log_proxy_event("https_connect_passthrough")
-    assert not should_log_proxy_event("upstream_error")
+    assert not should_log_proxy_event(
+        decision_reason="focus_inactive",
+        cache_hit=False,
+        gemma_response=None,
+    )
+    assert not should_log_proxy_event(
+        decision_reason="non_document_request",
+        cache_hit=False,
+        gemma_response=None,
+    )
+    assert not should_log_proxy_event(
+        decision_reason="https_connect_passthrough",
+        cache_hit=False,
+        gemma_response=None,
+    )
+    assert not should_log_proxy_event(
+        decision_reason="upstream_error",
+        cache_hit=False,
+        gemma_response=None,
+    )
 
 
 def test_evaluate_proxy_decision_defers_ambiguous_gemma_url_to_html():

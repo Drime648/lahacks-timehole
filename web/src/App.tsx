@@ -639,10 +639,9 @@ function LogsTable({
                 <th onClick={() => onSort("time")}>Time {sortField === "time" && (sortOrder === "asc" ? "↑" : "↓")}</th>
                 <th onClick={() => onSort("queryType")}>Type {sortField === "queryType" && (sortOrder === "asc" ? "↑" : "↓")}</th>
                 <th onClick={() => onSort("queryName")}>Target {sortField === "queryName" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                <th onClick={() => onSort("username")}>User {sortField === "username" && (sortOrder === "asc" ? "↑" : "↓")}</th>
                 <th onClick={() => onSort("blocked")}>Status {sortField === "blocked" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                <th onClick={() => onSort("decisionReason")}>Reason {sortField === "decisionReason" && (sortOrder === "asc" ? "↑" : "↓")}</th>
-                <th onClick={() => onSort("upstreamLatencyMs")}>Reply {sortField === "upstreamLatencyMs" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                <th onClick={() => onSort("gemmaResponse")}>Gemma {sortField === "gemmaResponse" && (sortOrder === "asc" ? "↑" : "↓")}</th>
+                <th onClick={() => onSort("upstreamLatencyMs")}>Latency {sortField === "upstreamLatencyMs" && (sortOrder === "asc" ? "↑" : "↓")}</th>
               </tr>
             </thead>
             <tbody>
@@ -659,22 +658,15 @@ function LogsTable({
                     <td><span className="type-badge">{log.queryType}</span></td>
                     <td className="domain-cell">
                       <strong className={isExpanded ? "" : "clamped"}>{log.queryName}</strong>
-                      {isExpanded && log.answers && (
-                        <div className="answers-preview">
-                          {log.answers.slice(0, 5).map((a, i) => <div key={i}>{a}</div>)}
-                        </div>
-                      )}
                     </td>
-                    <td>{log.userMatched ? log.username : "-"}</td>
                     <td>
                       <span className={`status-pill ${log.blocked ? "blocked" : "allowed"}`}>
                         {log.blocked ? "Blocked" : "OK"}
                       </span>
                       <div className="sub-text">{log.cacheHit ? "(cache)" : "(forwarded)"}</div>
                     </td>
-                    <td><span className="reason-text">{log.decisionReason || "n/a"}</span></td>
+                    <td><span className="reason-text">{log.gemmaResponse || "-"}</span></td>
                     <td>
-                      <div className="reply-code">HTTP {log.responseCode || "-"}</div>
                       <div className="sub-text">{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs.toFixed(1)}ms` : "-"}</div>
                     </td>
                   </tr>

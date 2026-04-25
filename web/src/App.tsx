@@ -798,42 +798,14 @@ function DashboardHome({
       <div className="dashboard-grid">
         <div className="dashboard-panel">
           <div className="panel-copy">
-            <h3>Top DNS domains</h3>
-          </div>
-          {dashboard.topQueriedDomains.length === 0 ? (
-            <div className="empty-state">No DNS domains queried yet.</div>
-          ) : (
-            <div className="bars-list">
-              {dashboard.topQueriedDomains.map((entry) => (
-                <div className="bar-row" key={entry.queryName}>
-                  <div className="bar-row-meta">
-                    <span>{entry.queryName}</span>
-                    <strong>{entry.count}</strong>
-                  </div>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill secondary"
-                      style={{
-                        width: `${(entry.count / dashboard.topQueriedDomains[0].count) * 100}%`
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="dashboard-panel">
-          <div className="panel-copy">
             <h3>Top blocked domains</h3>
           </div>
           {dashboard.topBlockedDomains.length === 0 ? (
             <div className="empty-state">No blocked DNS domains yet.</div>
           ) : (
-            <div className="bars-list">
+            <div className="bars-list blocked-domains-list">
               {dashboard.topBlockedDomains.map((entry) => (
-                <div className="bar-row" key={entry.queryName}>
+                <div className="bar-row blocked-domain-row" key={entry.queryName}>
                   <div className="bar-row-meta">
                     <span>{entry.queryName}</span>
                     <strong>{entry.count}</strong>
@@ -851,37 +823,6 @@ function DashboardHome({
             </div>
           )}
         </div>
-      </div>
-
-      <div className="dashboard-grid">
-        <div className="dashboard-panel">
-          <div className="panel-copy">
-            <h3>Decision breakdown</h3>
-          </div>
-          {dashboard.decisionBreakdown.length === 0 ? (
-            <div className="empty-state">No DNS decisions recorded yet.</div>
-          ) : (
-            <div className="bars-list">
-              {dashboard.decisionBreakdown.map((entry) => (
-                <div className="bar-row" key={entry.decisionReason}>
-                  <div className="bar-row-meta">
-                    <span>{entry.decisionReason}</span>
-                    <strong>{entry.count}</strong>
-                  </div>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill secondary"
-                      style={{
-                        width: `${(entry.count / dashboard.decisionBreakdown[0].count) * 100}%`
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div className="dashboard-panel">
           <div className="panel-copy">
             <h3>Recent hourly activity</h3>

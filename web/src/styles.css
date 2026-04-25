@@ -752,6 +752,23 @@ button[type="submit"] {
   gap: 8px;
 }
 
+.blocked-domains-list {
+  gap: 14px;
+}
+
+.blocked-domain-row {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.dashboard-grid > .dashboard-panel:first-child {
+  align-self: start;
+}
+
 .bar-row-meta,
 .log-row-meta {
   display: flex;

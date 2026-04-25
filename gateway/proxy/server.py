@@ -22,6 +22,8 @@ from gateway.proxy.certificates import CertificateAuthorityManager
 from gateway.proxy.filtering import (
     build_proxy_target_url,
     evaluate_proxy_decision,
+    get_user_blacklist,
+    get_user_manual_blacklist,
     normalize_http_target,
 )
 from gateway.store import MongoGatewayStore
@@ -86,6 +88,42 @@ def read_request_body(handler: BaseHTTPRequestHandler) -> bytes:
     if not content_length:
         return b""
     return handler.rfile.read(int(content_length))
+
+
+def get_focus_config_version(user: dict | None) -> str | None:
+    if user is None:
+        return None
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return None
+
+    updated_at = focus_config.get("updatedAt")
+    if updated_at is None:
+        return None
+
+    return str(updated_at)
+
+
+def log_active_blacklist(
+    *,
+    source_ip: str,
+    username: str | None,
+    config_version: str | None,
+    user: dict | None,
+) -> None:
+    blacklist = get_user_blacklist(user)
+    manual_blacklist = get_user_manual_blacklist(user)
+    logging.info(
+        "Active proxy blacklist for source ip %s username=%s config=%s manual_size=%s manual_entries=%s effective_size=%s effective_entries=%s",
+        source_ip,
+        username,
+        config_version,
+        len(manual_blacklist),
+        manual_blacklist,
+        len(blacklist),
+        blacklist,
+    )
 
 
 def write_raw_response(
@@ -300,7 +338,18 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
 
         user = store.get_user_context(source_ip)
         username = str(user.get("username")) if user and user.get("username") else None
-        cached_blocked = decision_cache.get_cached_decision(source_ip, target_url)
+        config_version = get_focus_config_version(user)
+        log_active_blacklist(
+            source_ip=source_ip,
+            username=username,
+            config_version=config_version,
+            user=user,
+        )
+        cached_blocked = decision_cache.get_cached_decision(
+            source_ip,
+            target_url,
+            config_version=config_version,
+        )
         policy = evaluate_proxy_decision(
             source_ip=source_ip,
             target_url=target_url,
@@ -308,7 +357,12 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             query=query,
             user=user,
             cached_blocked=cached_blocked,
-            cache_decision=decision_cache.cache_decision,
+            cache_decision=lambda ip, url, blocked: decision_cache.cache_decision(
+                ip,
+                url,
+                blocked,
+                config_version=config_version,
+            ),
         )
 
         if policy.blocked:
@@ -554,7 +608,18 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             path = parsed.path or "/"
             query = parsed.query
             target_url = build_proxy_target_url("https", host, path, query)
-            cached_blocked = decision_cache.get_cached_decision(source_ip, target_url)
+            config_version = get_focus_config_version(user)
+            log_active_blacklist(
+                source_ip=source_ip,
+                username=username,
+                config_version=config_version,
+                user=user,
+            )
+            cached_blocked = decision_cache.get_cached_decision(
+                source_ip,
+                target_url,
+                config_version=config_version,
+            )
             policy = evaluate_proxy_decision(
                 source_ip=source_ip,
                 target_url=target_url,
@@ -562,7 +627,12 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 query=query,
                 user=user,
                 cached_blocked=cached_blocked,
-                cache_decision=decision_cache.cache_decision,
+                cache_decision=lambda ip, url, blocked: decision_cache.cache_decision(
+                    ip,
+                    url,
+                    blocked,
+                    config_version=config_version,
+                ),
             )
 
             if policy.blocked:
@@ -730,7 +800,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         )
 
     def log_message(self, format: str, *args) -> None:
-        logging.info("%s - %s", self.client_address[0], format % args)
+        return
 
 
 def serve() -> None:

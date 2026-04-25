@@ -8,6 +8,7 @@ from time import monotonic
 class CachedDecision:
     blocked: bool
     expires_at: float
+    config_version: str | None = None
 
 
 @dataclass
@@ -34,7 +35,12 @@ class DecisionCache:
             self._cache[source_ip] = cache
         return cache
 
-    def get_cached_decision(self, source_ip: str, query_name: str) -> bool | None:
+    def get_cached_decision(
+        self,
+        source_ip: str,
+        query_name: str,
+        config_version: str | None = None,
+    ) -> bool | None:
         cache = self._cache.get(source_ip)
         if cache is None:
             return None
@@ -49,11 +55,24 @@ class DecisionCache:
                 del self._cache[source_ip]
             return None
 
+        if decision.config_version != config_version:
+            del cache.decisions[query_name]
+            if not cache.decisions:
+                del self._cache[source_ip]
+            return None
+
         return decision.blocked
 
-    def cache_decision(self, source_ip: str, query_name: str, blocked: bool) -> None:
+    def cache_decision(
+        self,
+        source_ip: str,
+        query_name: str,
+        blocked: bool,
+        config_version: str | None = None,
+    ) -> None:
         cache = self.get_source_cache(source_ip)
         cache.decisions[query_name] = CachedDecision(
             blocked=blocked,
             expires_at=monotonic() + self.ttl_seconds,
+            config_version=config_version,
         )

@@ -3,19 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
-from urllib.parse import SplitResult, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
-
-URL_PATH_BLACKLIST = [
-    "/r/all",
-    "/shorts",
-    "/reels",
-    "/explore",
-    "/foryou",
-    "/feed",
-    "sort=hot",
-    "sort=top",
-]
 
 
 @dataclass(frozen=True)
@@ -84,6 +73,36 @@ def build_proxy_target_url(scheme: str, host: str, path: str, query: str) -> str
     return urlunsplit((scheme, host, normalized_path, query, ""))
 
 
+def get_user_blacklist(user: dict[str, Any] | None) -> list[str]:
+    if user is None:
+        return []
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return []
+
+    blacklist = focus_config.get("blacklist", [])
+    if not isinstance(blacklist, list):
+        return []
+
+    return [str(entry).lower() for entry in blacklist]
+
+
+def get_user_manual_blacklist(user: dict[str, Any] | None) -> list[str]:
+    if user is None:
+        return []
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return []
+
+    blacklist = focus_config.get("manualBlacklist", [])
+    if not isinstance(blacklist, list):
+        return []
+
+    return [str(entry).lower() for entry in blacklist]
+
+
 def normalize_http_target(
     *,
     path: str,
@@ -128,11 +147,85 @@ def normalize_http_target(
     )
 
 
-def should_block_url_path(path: str, query: str) -> bool:
-    path_and_query = path.lower()
-    if query:
-        path_and_query = f"{path_and_query}?{query.lower()}"
-    return any(entry in path_and_query for entry in URL_PATH_BLACKLIST)
+def should_block_url(target_url: str, blacklist: list[str]) -> bool:
+    lowered_url = target_url.lower()
+    print(lowered_url)
+    return any(entry in lowered_url for entry in blacklist)
+
+
+def extract_page_metadata(
+    *,
+    content_type: str | None,
+    response_body: bytes,
+    max_chars: int = 4000,
+) -> dict[str, str]:
+    text = ""
+
+    if content_type and "text/html" not in content_type.lower():
+        return {"title": "", "description": "", "text": ""}
+
+    try:
+        text = response_body.decode("utf-8", errors="ignore")
+    except Exception:
+        return {"title": "", "description": "", "text": ""}
+
+    title = ""
+    description = ""
+
+    import re
+
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
+    if title_match:
+        title = re.sub(r"\s+", " ", title_match.group(1)).strip()
+
+    desc_match = re.search(
+        r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']',
+        text,
+        re.I | re.S,
+    )
+    if desc_match:
+        description = re.sub(r"\s+", " ", desc_match.group(1)).strip()
+
+    visible_text = re.sub(r"<script.*?</script>", " ", text, flags=re.I | re.S)
+    visible_text = re.sub(r"<style.*?</style>", " ", visible_text, flags=re.I | re.S)
+    visible_text = re.sub(r"<[^>]+>", " ", visible_text)
+    visible_text = re.sub(r"\s+", " ", visible_text).strip()
+
+    return {
+        "title": title[:500],
+        "description": description[:1000],
+        "text": visible_text[:max_chars],
+    }
+
+
+def evaluate_semantic_response(
+    *,
+    target_url: str,
+    metadata: dict[str, str],
+    user: dict[str, Any],
+    semantic_classifier: Callable[[dict[str, Any]], bool] | None = None,
+) -> tuple[bool, str]:
+    focus_config = user.get("focusConfig", {})
+
+    payload = {
+        "target_url": target_url,
+        "title": metadata.get("title", ""),
+        "description": metadata.get("description", ""),
+        "text": metadata.get("text", ""),
+        "focus_summary": focus_config.get("focusSummary", ""),
+        "blocked_categories": focus_config.get("blockedCategories", []),
+        "manual_blacklist": focus_config.get("blacklist", []),
+    }
+
+    if semantic_classifier is None:
+        return False, "semantic_classifier_missing"
+
+    blocked = semantic_classifier(payload)
+
+    return (
+        blocked,
+        "semantic_blocked" if blocked else "semantic_allowed",
+    )
 
 
 def evaluate_proxy_decision(
@@ -145,14 +238,27 @@ def evaluate_proxy_decision(
     cached_blocked: bool | None,
     cache_decision: Callable[[str, str, bool], None],
     now_provider: Callable[[str], datetime] | None = None,
+    response_body: bytes | None = None,
+    response_content_type: str | None = None,
+    semantic_classifier: Callable[[dict[str, Any]], bool] | None = None,
 ) -> ProxyPolicyDecision:
-    print(target_url)
+    blacklist = get_user_blacklist(user)
+
+    if blacklist and should_block_url(target_url, blacklist):
+        cache_decision(source_ip, target_url, True)
+        return ProxyPolicyDecision(
+            blocked=True,
+            cache_hit=False,
+            decision_reason="manual_blacklist_match",
+            blacklist_size=len(blacklist),
+        )
+
     if not is_proxy_filtering_active(user, now_provider=now_provider):
         return ProxyPolicyDecision(
             blocked=False,
             cache_hit=False,
             decision_reason="focus_inactive",
-            blacklist_size=len(URL_PATH_BLACKLIST),
+            blacklist_size=len(blacklist),
         )
 
     if cached_blocked is not None:
@@ -160,14 +266,46 @@ def evaluate_proxy_decision(
             blocked=cached_blocked,
             cache_hit=True,
             decision_reason="cache_blocked" if cached_blocked else "cache_allowed",
-            blacklist_size=len(URL_PATH_BLACKLIST),
+            blacklist_size=len(blacklist),
+        )
+    blocked = should_block_url(target_url, blacklist)
+
+    if blocked:
+        cache_decision(source_ip, target_url, True)
+        return ProxyPolicyDecision(
+            blocked=True,
+            cache_hit=False,
+            decision_reason="blacklist_match",
+            blacklist_size=len(blacklist),
         )
 
-    blocked = should_block_url_path(path, query)
-    cache_decision(source_ip, target_url, blocked)
+    if response_body is not None:
+        metadata = extract_page_metadata(
+            content_type=response_content_type,
+            response_body=response_body,
+        )
+
+        semantic_blocked, reason = evaluate_semantic_response(
+            target_url=target_url,
+            metadata=metadata,
+            user=user,
+            semantic_classifier=semantic_classifier,
+        )
+
+        cache_decision(source_ip, target_url, semantic_blocked)
+
+        return ProxyPolicyDecision(
+            blocked=semantic_blocked,
+            cache_hit=False,
+            decision_reason=reason,
+            blacklist_size=len(blacklist),
+        )
+
+    cache_decision(source_ip, target_url, False)
+
     return ProxyPolicyDecision(
-        blocked=blocked,
+        blocked=False,
         cache_hit=False,
-        decision_reason="path_blacklist_match" if blocked else "allowed_no_match",
-        blacklist_size=len(URL_PATH_BLACKLIST),
+        decision_reason="allowed_no_response_to_analyze",
+        blacklist_size=len(blacklist),
     )

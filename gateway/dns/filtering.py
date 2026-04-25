@@ -89,6 +89,17 @@ def get_user_blacklist(user: dict[str, Any] | None) -> list[str]:
     return normalize_blacklist(focus_config.get("blacklist", []))
 
 
+def get_user_manual_blacklist(user: dict[str, Any] | None) -> list[str]:
+    if user is None:
+        return []
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return []
+
+    return normalize_blacklist(focus_config.get("manualBlacklist", []))
+
+
 def evaluate_policy_decision(
     *,
     source_ip: str,
@@ -99,6 +110,16 @@ def evaluate_policy_decision(
     cache_decision: Callable[[str, str, bool], None],
     now_provider: Callable[[str], datetime] | None = None,
 ) -> PolicyDecision:
+    manual_blacklist = get_user_manual_blacklist(user)
+    if manual_blacklist and is_blocked(query_name, manual_blacklist):
+        cache_decision(source_ip, query_name, True)
+        return PolicyDecision(
+            blocked=True,
+            cache_hit=False,
+            decision_reason="manual_blacklist_match",
+            blacklist_size=len(manual_blacklist),
+        )
+
     if user is not None and not is_filtering_active(user, now_provider=now_provider):
         return PolicyDecision(
             blocked=False,

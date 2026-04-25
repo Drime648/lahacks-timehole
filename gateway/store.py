@@ -83,10 +83,12 @@ class MongoGatewayStore:
                 {
                     "username": 1,
                     "focusConfig.blacklist": 1,
+                    "focusConfig.manualBlacklist": 1,
                     "focusConfig.blockedCategories": 1,
                     "focusConfig.studyModeEnabled": 1,
                     "focusConfig.schedules": 1,
                     "focusConfig.timezone": 1,
+                    "focusConfig.updatedAt": 1,
                 },
             )
         except Exception:

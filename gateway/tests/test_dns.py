@@ -9,6 +9,7 @@ from gateway.dns.filtering import (
     PolicyDecision,
     evaluate_policy_decision,
     get_user_blacklist,
+    get_user_manual_blacklist,
     is_blocked,
     is_filtering_active,
     normalize_blacklist,
@@ -113,6 +114,23 @@ def test_get_cached_decision_expires_and_cleans_up(monkeypatch):
     assert "10.0.0.1" not in cache.entries
 
 
+def test_get_cached_decision_misses_when_config_version_changes(monkeypatch):
+    cache = DecisionCache(ttl_seconds=300)
+    monkeypatch.setattr("gateway.cache.monotonic", lambda: 100.0)
+
+    cache.cache_decision("10.0.0.1", "reddit.com", False, config_version="before")
+
+    assert (
+        cache.get_cached_decision(
+            "10.0.0.1",
+            "reddit.com",
+            config_version="after",
+        )
+        is None
+    )
+    assert "10.0.0.1" not in cache.entries
+
+
 def test_get_blacklist_for_source_ip_returns_normalized_blacklist(monkeypatch):
     store = MongoGatewayStore(
         users_collection=FakeUsersCollection({"focusConfig": {"blacklist": ["Reddit", "TikTok"]}})
@@ -142,7 +160,13 @@ def test_get_user_context_handles_collection_errors():
 
 
 def test_get_user_context_returns_matching_projection_result():
-    expected = {"username": "alice", "focusConfig": {"blacklist": ["reddit"]}}
+    expected = {
+        "username": "alice",
+        "focusConfig": {
+            "blacklist": ["reddit"],
+            "updatedAt": "2026-04-27T10:15:00.000Z",
+        },
+    }
     fake_users = FakeUsersCollection(expected)
     store = MongoGatewayStore(users_collection=fake_users)
 
@@ -151,7 +175,9 @@ def test_get_user_context_returns_matching_projection_result():
     assert result == expected
     assert fake_users.calls
     query_filter = fake_users.calls[0][0][0]
+    projection = fake_users.calls[0][0][1]
     assert query_filter == {"focusConfig.sourceIp": {"$in": ["10.0.0.2"]}}
+    assert projection["focusConfig.updatedAt"] == 1
 
 
 def test_get_user_context_uses_loopback_alias_query():
@@ -173,6 +199,15 @@ def test_get_user_context_uses_loopback_alias_query():
 def test_get_user_blacklist_returns_empty_for_invalid_focus_config():
     assert get_user_blacklist(None) == []
     assert get_user_blacklist({"focusConfig": "invalid"}) == []
+
+
+def test_get_user_manual_blacklist_returns_normalized_manual_entries():
+    assert get_user_manual_blacklist(None) == []
+    assert get_user_manual_blacklist({"focusConfig": "invalid"}) == []
+    assert (
+        get_user_manual_blacklist({"focusConfig": {"manualBlacklist": ["JetPunk", "Reddit"]}})
+        == ["jetpunk", "reddit"]
+    )
 
 
 def test_is_filtering_active_returns_true_when_study_mode_enabled():
@@ -252,6 +287,35 @@ def test_evaluate_policy_decision_bypasses_when_focus_inactive(monkeypatch):
         decision_reason="focus_inactive",
         blacklist_size=1,
     )
+
+
+def test_evaluate_policy_decision_manual_blacklist_blocks_when_focus_inactive(monkeypatch):
+    cached_calls = []
+
+    result = evaluate_policy_decision(
+        source_ip="10.0.0.3",
+        query_name="www.jetpunk.com",
+        user={
+            "focusConfig": {
+                "studyModeEnabled": False,
+                "schedules": [],
+                "blacklist": ["jetpunk"],
+                "manualBlacklist": ["jetpunk"],
+            }
+        },
+        cached_blocked=None,
+        source_blacklist_loader=lambda source_ip: [],
+        cache_decision=lambda ip, query, blocked: cached_calls.append((ip, query, blocked)),
+        now_provider=lambda timezone_name: real_datetime(2026, 4, 27, 1, 0),
+    )
+
+    assert result == PolicyDecision(
+        blocked=True,
+        cache_hit=False,
+        decision_reason="manual_blacklist_match",
+        blacklist_size=1,
+    )
+    assert cached_calls == [("10.0.0.3", "www.jetpunk.com", True)]
 
 
 def test_evaluate_policy_decision_uses_cached_block():

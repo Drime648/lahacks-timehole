@@ -6,9 +6,10 @@ from gateway.proxy.filtering import (
     ProxyPolicyDecision,
     build_proxy_target_url,
     evaluate_proxy_decision,
+    get_user_manual_blacklist,
     is_proxy_filtering_active,
     normalize_http_target,
-    should_block_url_path,
+    should_block_url,
 )
 from gateway.proxy.server import build_block_page
 
@@ -51,10 +52,22 @@ def test_normalize_http_target_from_origin_form():
     assert target_url == "http://example.com/docs/reference?tab=api"
 
 
-def test_should_block_url_path_matches_hardcoded_blacklist():
-    assert should_block_url_path("/r/all", "")
-    assert should_block_url_path("/watch", "sort=hot")
-    assert not should_block_url_path("/docs/reference", "tab=api")
+def test_should_block_url_matches_mongodb_blacklist_entries():
+    blacklist = ["reddit", "/shorts", "sort=hot"]
+
+    assert should_block_url("https://www.reddit.com/r/all", blacklist)
+    assert should_block_url("https://youtube.com/shorts/123", blacklist)
+    assert should_block_url("https://example.com/watch?sort=hot", blacklist)
+    assert not should_block_url("https://example.com/docs/reference?tab=api", blacklist)
+
+
+def test_get_user_manual_blacklist_returns_normalized_manual_entries():
+    assert get_user_manual_blacklist(None) == []
+    assert get_user_manual_blacklist({"focusConfig": "invalid"}) == []
+    assert (
+        get_user_manual_blacklist({"focusConfig": {"manualBlacklist": ["JetPunk", "Reddit"]}})
+        == ["jetpunk", "reddit"]
+    )
 
 
 def test_is_proxy_filtering_active_uses_study_mode():
@@ -84,10 +97,16 @@ def test_is_proxy_filtering_active_uses_schedule():
 def test_evaluate_proxy_decision_bypasses_when_focus_inactive():
     result = evaluate_proxy_decision(
         source_ip="10.0.0.9",
-        target_url="http://example.com/r/all",
+        target_url="http://reddit.com/r/all",
         path="/r/all",
         query="",
-        user={"focusConfig": {"studyModeEnabled": False, "schedules": []}},
+        user={
+            "focusConfig": {
+                "studyModeEnabled": False,
+                "schedules": [],
+                "blacklist": ["reddit"],
+            }
+        },
         cached_blocked=None,
         cache_decision=lambda source_ip, target_url, blocked: None,
         now_provider=lambda timezone_name: real_datetime(2026, 4, 27, 1, 0),
@@ -97,17 +116,49 @@ def test_evaluate_proxy_decision_bypasses_when_focus_inactive():
         blocked=False,
         cache_hit=False,
         decision_reason="focus_inactive",
-        blacklist_size=8,
+        blacklist_size=1,
     )
+
+
+def test_evaluate_proxy_decision_manual_blacklist_blocks_when_focus_inactive():
+    cached_calls = []
+
+    result = evaluate_proxy_decision(
+        source_ip="10.0.0.9",
+        target_url="https://www.jetpunk.com/quizzes",
+        path="/quizzes",
+        query="",
+        user={
+            "focusConfig": {
+                "studyModeEnabled": False,
+                "schedules": [],
+                "blacklist": ["jetpunk"],
+                "manualBlacklist": ["jetpunk"],
+            }
+        },
+        cached_blocked=None,
+        cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
+            (source_ip, target_url, blocked)
+        ),
+        now_provider=lambda timezone_name: real_datetime(2026, 4, 27, 1, 0),
+    )
+
+    assert result == ProxyPolicyDecision(
+        blocked=True,
+        cache_hit=False,
+        decision_reason="manual_blacklist_match",
+        blacklist_size=1,
+    )
+    assert cached_calls == [("10.0.0.9", "https://www.jetpunk.com/quizzes", True)]
 
 
 def test_evaluate_proxy_decision_uses_cached_result():
     result = evaluate_proxy_decision(
         source_ip="10.0.0.9",
-        target_url="http://example.com/r/all",
+        target_url="http://reddit.com/r/all",
         path="/r/all",
         query="",
-        user={"focusConfig": {"studyModeEnabled": True, "schedules": []}},
+        user={"focusConfig": {"studyModeEnabled": True, "schedules": [], "blacklist": ["reddit"]}},
         cached_blocked=True,
         cache_decision=lambda source_ip, target_url, blocked: None,
     )
@@ -116,19 +167,19 @@ def test_evaluate_proxy_decision_uses_cached_result():
         blocked=True,
         cache_hit=True,
         decision_reason="cache_blocked",
-        blacklist_size=8,
+        blacklist_size=1,
     )
 
 
-def test_evaluate_proxy_decision_blocks_blacklisted_path():
+def test_evaluate_proxy_decision_blocks_mongodb_blacklisted_url():
     cached_calls = []
 
     result = evaluate_proxy_decision(
         source_ip="10.0.0.9",
-        target_url="http://example.com/r/all",
+        target_url="http://reddit.com/r/all",
         path="/r/all",
         query="",
-        user={"focusConfig": {"studyModeEnabled": True, "schedules": []}},
+        user={"focusConfig": {"studyModeEnabled": True, "schedules": [], "blacklist": ["reddit"]}},
         cached_blocked=None,
         cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
             (source_ip, target_url, blocked)
@@ -138,10 +189,10 @@ def test_evaluate_proxy_decision_blocks_blacklisted_path():
     assert result == ProxyPolicyDecision(
         blocked=True,
         cache_hit=False,
-        decision_reason="path_blacklist_match",
-        blacklist_size=8,
+        decision_reason="blacklist_match",
+        blacklist_size=1,
     )
-    assert cached_calls == [("10.0.0.9", "http://example.com/r/all", True)]
+    assert cached_calls == [("10.0.0.9", "http://reddit.com/r/all", True)]
 
 
 def test_evaluate_proxy_decision_allows_clean_path():
@@ -152,7 +203,7 @@ def test_evaluate_proxy_decision_allows_clean_path():
         target_url="http://example.com/docs/reference?tab=api",
         path="/docs/reference",
         query="tab=api",
-        user={"focusConfig": {"studyModeEnabled": True, "schedules": []}},
+        user={"focusConfig": {"studyModeEnabled": True, "schedules": [], "blacklist": ["reddit"]}},
         cached_blocked=None,
         cache_decision=lambda source_ip, target_url, blocked: cached_calls.append(
             (source_ip, target_url, blocked)
@@ -162,8 +213,8 @@ def test_evaluate_proxy_decision_allows_clean_path():
     assert result == ProxyPolicyDecision(
         blocked=False,
         cache_hit=False,
-        decision_reason="allowed_no_match",
-        blacklist_size=8,
+        decision_reason="allowed_no_response_to_analyze",
+        blacklist_size=1,
     )
     assert cached_calls == [("10.0.0.9", "http://example.com/docs/reference?tab=api", False)]
 

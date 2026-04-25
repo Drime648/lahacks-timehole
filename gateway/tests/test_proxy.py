@@ -10,6 +10,7 @@ from gateway.proxy.filtering import (
     normalize_http_target,
     should_block_url_path,
 )
+from gateway.proxy.server import build_block_page
 
 
 class FrozenDateTime(real_datetime):
@@ -165,3 +166,11 @@ def test_evaluate_proxy_decision_allows_clean_path():
         blacklist_size=8,
     )
     assert cached_calls == [("10.0.0.9", "http://example.com/docs/reference?tab=api", False)]
+
+
+def test_build_block_page_contains_get_back_on_task_message():
+    body = build_block_page("https://reddit.com/r/all", "path_blacklist_match").decode("utf-8")
+
+    assert "Get back on task" in body
+    assert "https://reddit.com/r/all" in body
+    assert "path_blacklist_match" in body

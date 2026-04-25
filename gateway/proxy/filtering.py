@@ -96,11 +96,17 @@ def normalize_http_target(
         host = parsed.netloc or host_header
         target_path = parsed.path or "/"
         query = parsed.query
-        return scheme, host, target_path, query, build_proxy_target_url(
+        return (
             scheme,
             host,
             target_path,
             query,
+            build_proxy_target_url(
+                scheme,
+                host,
+                target_path,
+                query,
+            ),
         )
 
     parsed = urlsplit(path)
@@ -108,11 +114,17 @@ def normalize_http_target(
     host = host_header
     target_path = parsed.path or "/"
     query = parsed.query
-    return scheme, host, target_path, query, build_proxy_target_url(
+    return (
         scheme,
         host,
         target_path,
         query,
+        build_proxy_target_url(
+            scheme,
+            host,
+            target_path,
+            query,
+        ),
     )
 
 
@@ -134,6 +146,7 @@ def evaluate_proxy_decision(
     cache_decision: Callable[[str, str, bool], None],
     now_provider: Callable[[str], datetime] | None = None,
 ) -> ProxyPolicyDecision:
+    print(target_url)
     if not is_proxy_filtering_active(user, now_provider=now_provider):
         return ProxyPolicyDecision(
             blocked=False,

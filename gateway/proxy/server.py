@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import http.client
-import hashlib
 import json
 import logging
 import os
@@ -25,7 +24,6 @@ from gateway.proxy.filtering import (
     evaluate_proxy_decision,
     normalize_http_target,
 )
-from gateway.proxy.gemma_classifier import classify_with_gemma
 from gateway.store import MongoGatewayStore
 
 PROXY_LISTEN_HOST: Final[str] = os.environ.get("PROXY_LISTEN_HOST", "0.0.0.0")
@@ -132,11 +130,9 @@ def build_block_page(target_url: str, reason: str) -> bytes:
     <style>
       body {{
         margin: 0;
-        font-family: "Plus Jakarta Sans", "Inter", sans-serif;
-        background: radial-gradient(circle at top left, #e0e7ff, transparent 40%),
-                    radial-gradient(circle at bottom right, #fce7f3, transparent 40%),
-                    linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 100%);
-        color: #1e1b4b;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: linear-gradient(180deg, #fff8ef 0%, #f5ead8 100%);
+        color: #1c241f;
         display: grid;
         place-items: center;
         min-height: 100vh;
@@ -144,29 +140,26 @@ def build_block_page(target_url: str, reason: str) -> bytes:
       }}
       .card {{
         max-width: 720px;
-        background: rgba(255, 255, 255, 0.8);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(99, 102, 241, 0.2);
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(28, 36, 31, 0.12);
         border-radius: 24px;
         padding: 28px;
-        box-shadow: 0 12px 30px rgba(79, 70, 229, 0.15);
+        box-shadow: 0 18px 50px rgba(53, 36, 18, 0.1);
       }}
       h1 {{
         margin: 0 0 12px;
         font-size: 2rem;
-        color: #4f46e5;
       }}
       p {{
         line-height: 1.65;
         margin: 0 0 12px;
-        color: #4338ca;
       }}
       code {{
         display: block;
         padding: 12px;
         border-radius: 14px;
-        background: rgba(99, 102, 241, 0.1);
-        color: #6366f1;
+        background: #10231c;
+        color: #d9f4e8;
         overflow-wrap: anywhere;
       }}
     </style>
@@ -187,25 +180,8 @@ def build_block_page(target_url: str, reason: str) -> bytes:
 
 def relay_http_response(handler: BaseHTTPRequestHandler, upstream_response: http.client.HTTPResponse) -> None:
     body = upstream_response.read()
-    relay_http_response_parts(
-        handler,
-        status=upstream_response.status,
-        reason=upstream_response.reason,
-        response_headers=upstream_response.getheaders(),
-        body=body,
-    )
-
-
-def relay_http_response_parts(
-    handler: BaseHTTPRequestHandler,
-    *,
-    status: int,
-    reason: str,
-    response_headers: list[tuple[str, str]],
-    body: bytes,
-) -> None:
-    handler.send_response(status, reason)
-    for header, value in response_headers:
+    handler.send_response(upstream_response.status, upstream_response.reason)
+    for header, value in upstream_response.getheaders():
         if header.lower() in HOP_BY_HOP_HEADERS or header.lower() == "content-length":
             continue
         handler.send_header(header, value)
@@ -218,91 +194,20 @@ def relay_http_response_parts(
 
 def relay_https_response(stream, upstream_response: http.client.HTTPResponse) -> None:
     body = upstream_response.read()
-    relay_https_response_parts(
-        stream,
-        status=upstream_response.status,
-        reason=upstream_response.reason or "OK",
-        response_headers=upstream_response.getheaders(),
-        body=body,
-    )
-
-
-def relay_https_response_parts(
-    stream,
-    *,
-    status: int,
-    reason: str,
-    response_headers: list[tuple[str, str]],
-    body: bytes,
-) -> None:
     headers = {
         header: value
-        for header, value in response_headers
+        for header, value in upstream_response.getheaders()
         if header.lower() not in HOP_BY_HOP_HEADERS and header.lower() != "content-length"
     }
     headers["Content-Length"] = str(len(body))
     headers["Connection"] = "close"
     write_raw_response(
         stream,
-        status_code=status,
-        reason=reason,
+        status_code=upstream_response.status,
+        reason=upstream_response.reason or "OK",
         headers=headers,
         body=body,
     )
-
-
-def get_header_value(headers: list[tuple[str, str]], name: str) -> str | None:
-    lowered_name = name.lower()
-    for header, value in headers:
-        if header.lower() == lowered_name:
-            return value
-    return None
-
-
-def build_llm_cache_key(payload: dict) -> str:
-    cache_payload = {
-        "phase": payload.get("phase", "url"),
-        "target_url": payload.get("target_url", ""),
-        "title": payload.get("title", ""),
-        "description": payload.get("description", ""),
-        "text": payload.get("text", ""),
-        "focus_summary": payload.get("focus_summary", ""),
-        "blocked_categories": payload.get("blocked_categories", []),
-    }
-    encoded = json.dumps(cache_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def classify_with_cached_gemma(
-    *,
-    source_ip: str,
-    config_version: str | None,
-    payload: dict,
-) -> str:
-    cache_key = build_llm_cache_key(payload)
-    cached_decision = decision_cache.get_cached_llm_decision(
-        source_ip,
-        cache_key,
-        config_version=config_version,
-    )
-    if cached_decision is not None:
-        logging.info(
-            "Gemma classifier cache hit for source ip %s phase=%s url=%s decision=%s",
-            source_ip,
-            payload.get("phase", "url"),
-            payload.get("target_url", ""),
-            cached_decision,
-        )
-        return cached_decision
-
-    decision = classify_with_gemma(payload)
-    decision_cache.cache_llm_decision(
-        source_ip,
-        cache_key,
-        decision,
-        config_version=config_version,
-    )
-    return decision
 
 
 class TimeHoleProxyHandler(BaseHTTPRequestHandler):
@@ -429,11 +334,6 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 blocked,
                 config_version=config_version,
             ),
-            semantic_classifier=lambda payload: classify_with_cached_gemma(
-                source_ip=source_ip,
-                config_version=config_version,
-                payload=payload,
-            ),
         )
 
         if policy.blocked:
@@ -475,7 +375,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         upstream_headers = {
             key: value
             for key, value in self.headers.items()
-            if key.lower() not in HOP_BY_HOP_HEADERS and key.lower() != "accept-encoding"
+            if key.lower() not in HOP_BY_HOP_HEADERS
         }
         upstream_headers["Host"] = host
         upstream_path = path if not query else f"{path}?{query}"
@@ -488,7 +388,6 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         connection = None
         status_code = None
         error = None
-        response_sent = False
 
         try:
             connection = connection_class(
@@ -503,57 +402,8 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 headers=upstream_headers,
             )
             upstream_response = connection.getresponse()
+            relay_http_response(self, upstream_response)
             status_code = upstream_response.status
-            response_headers = upstream_response.getheaders()
-            response_body = upstream_response.read()
-            if policy.decision_reason == "gemma_needs_html":
-                content_type = get_header_value(response_headers, "Content-Type")
-                policy = evaluate_proxy_decision(
-                    source_ip=source_ip,
-                    target_url=target_url,
-                    path=path,
-                    query=query,
-                    user=user,
-                    cached_blocked=None,
-                    cache_decision=lambda ip, url, blocked: decision_cache.cache_decision(
-                        ip,
-                        url,
-                        blocked,
-                        config_version=config_version,
-                    ),
-                    response_body=response_body,
-                    response_content_type=content_type,
-                    semantic_classifier=lambda payload: classify_with_cached_gemma(
-                        source_ip=source_ip,
-                        config_version=config_version,
-                        payload=payload,
-                    ),
-                )
-                if policy.blocked:
-                    blocked_body = build_block_page(target_url, policy.decision_reason)
-                    logging.info(
-                        "Blocked HTTP response for %s from source ip %s via reason=%s",
-                        target_url,
-                        source_ip,
-                        policy.decision_reason,
-                    )
-                    self.send_response(403, "Blocked by TimeHole proxy")
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                    self.send_header("Content-Length", str(len(blocked_body)))
-                    self.end_headers()
-                    if self.command != "HEAD":
-                        self.wfile.write(blocked_body)
-                    status_code = 403
-                    response_sent = True
-
-            if not response_sent:
-                relay_http_response_parts(
-                    self,
-                    status=status_code,
-                    reason=upstream_response.reason,
-                    response_headers=response_headers,
-                    body=response_body,
-                )
         except Exception as upstream_error:
             self.send_error(502, f"Proxy upstream failure: {upstream_error}")
             status_code = 502
@@ -576,7 +426,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             path=path,
             query=query,
             target_url=target_url,
-            blocked=policy.blocked,
+            blocked=False,
             cache_hit=policy.cache_hit,
             decision_reason=policy.decision_reason if error is None else "upstream_error",
             status_code=status_code,
@@ -748,11 +598,6 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                     blocked,
                     config_version=config_version,
                 ),
-                semantic_classifier=lambda payload: classify_with_cached_gemma(
-                    source_ip=source_ip,
-                    config_version=config_version,
-                    payload=payload,
-                ),
             )
 
             if policy.blocked:
@@ -798,14 +643,13 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             upstream_headers = {
                 key: value
                 for key, value in headers.items()
-                if key.lower() not in HOP_BY_HOP_HEADERS and key.lower() != "accept-encoding"
+                if key.lower() not in HOP_BY_HOP_HEADERS
             }
             upstream_headers["Host"] = host
             start = monotonic()
             connection = None
             status_code = None
             error = None
-            response_sent = False
 
             try:
                 connection = http.client.HTTPSConnection(
@@ -821,62 +665,8 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                     headers=upstream_headers,
                 )
                 upstream_response = connection.getresponse()
+                relay_https_response(writer, upstream_response)
                 status_code = upstream_response.status
-                response_headers = upstream_response.getheaders()
-                response_body = upstream_response.read()
-                if policy.decision_reason == "gemma_needs_html":
-                    content_type = get_header_value(response_headers, "Content-Type")
-                    policy = evaluate_proxy_decision(
-                        source_ip=source_ip,
-                        target_url=target_url,
-                        path=path,
-                        query=query,
-                        user=user,
-                        cached_blocked=None,
-                        cache_decision=lambda ip, url, blocked: decision_cache.cache_decision(
-                            ip,
-                            url,
-                            blocked,
-                            config_version=config_version,
-                        ),
-                        response_body=response_body,
-                        response_content_type=content_type,
-                        semantic_classifier=lambda payload: classify_with_cached_gemma(
-                            source_ip=source_ip,
-                            config_version=config_version,
-                            payload=payload,
-                        ),
-                    )
-                    if policy.blocked:
-                        blocked_body = build_block_page(target_url, policy.decision_reason)
-                        logging.info(
-                            "Blocked HTTPS response for %s from source ip %s via reason=%s",
-                            target_url,
-                            source_ip,
-                            policy.decision_reason,
-                        )
-                        write_raw_response(
-                            writer,
-                            status_code=403,
-                            reason="Blocked by TimeHole proxy",
-                            headers={
-                                "Content-Type": "text/html; charset=utf-8",
-                                "Content-Length": str(len(blocked_body)),
-                                "Connection": "close",
-                            },
-                            body=blocked_body,
-                        )
-                        status_code = 403
-                        response_sent = True
-
-                if not response_sent:
-                    relay_https_response_parts(
-                        writer,
-                        status=status_code,
-                        reason=upstream_response.reason or "OK",
-                        response_headers=response_headers,
-                        body=response_body,
-                    )
             except Exception as upstream_error:
                 error = str(upstream_error)
                 error_body = error.encode("utf-8", "replace")
@@ -910,7 +700,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 path=path,
                 query=query,
                 target_url=target_url,
-                blocked=policy.blocked,
+                blocked=False,
                 cache_hit=policy.cache_hit,
                 decision_reason=policy.decision_reason if error is None else "upstream_error",
                 status_code=status_code,
@@ -954,6 +744,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         mitm_enabled: bool,
         error: str | None,
     ) -> None:
+        pass
         store.log_proxy_event(
             source_ip=source_ip,
             username=username,
@@ -975,8 +766,8 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         )
 
     def log_message(self, format: str, *args) -> None:
-        return
-
+       ## logging.info("%s - %s", self.client_address[0], format % args)
+       pass
 
 def serve() -> None:
     logging.basicConfig(

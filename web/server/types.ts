@@ -53,3 +53,24 @@ export interface DnsLogDocument {
   error?: string | null;
   createdAt: string;
 }
+
+export interface ProxyLogDocument {
+  sourceIp: string;
+  username?: string | null;
+  userMatched?: boolean;
+  method: string;
+  scheme: string;
+  host: string;
+  path: string;
+  query: string;
+  targetUrl: string;
+  blocked: boolean;
+  cacheHit: boolean;
+  decisionReason?: string;
+  statusCode?: number | null;
+  upstreamLatencyMs?: number | null;
+  httpsTunnel?: boolean;
+  mitmEnabled?: boolean;
+  error?: string | null;
+  createdAt: string;
+}

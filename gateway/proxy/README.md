@@ -9,11 +9,12 @@ Current behavior:
   - host
   - URL path
   - query string
-- applies a hardcoded URL-path blacklist
 - only filters when the user's focus mode is active
 - supports HTTPS `CONNECT`
 - performs HTTPS MITM interception using a locally generated TimeHole root CA
 - can inspect encrypted HTTPS request URLs once the CA is trusted in the browser
+- uses Gemma through the Gemini API for URL and HTML-response decisions
+- caches URL and HTML classifier results in memory by focus-config version
 - exposes the root CA download at `/__timehole/ca.crt`
 
 ## Run
@@ -25,6 +26,39 @@ export MONGODB_URI="mongodb+srv://..."
 export MONGODB_DB_NAME="timehole"
 python3 gateway/proxy/main.py
 ```
+
+## Gemma classification
+
+The proxy uses Gemma for agentic focus classification while filtering is active.
+It first classifies the URL. If Gemma returns `needs_html`, the proxy fetches the
+upstream page, extracts HTML title/description/text, and asks Gemma again before
+relaying or blocking the response.
+
+Gemma decisions are cached in memory using the same proxy cache TTL. Final allow
+or block decisions are cached by URL and focus config, so once Gemma approves or
+blocks a URL it does not need to run again until the cache expires or the focus
+config changes. Intermediate LLM outputs are also cached by payload hash.
+
+To use hosted Gemma through the Gemini API:
+
+```bash
+export PROXY_ENABLE_GEMMA_CLASSIFIER=true
+export GEMINI_API_KEY="..."
+export GEMMA_API_URL="https://generativelanguage.googleapis.com/v1beta"
+export GEMMA_MODEL="gemma-3-27b-it"
+export GEMMA_TIMEOUT_SECONDS="3"
+```
+
+The Gemini API call bypasses system proxy settings by default. This prevents the
+TimeHole proxy from recursively sending its own classifier request through
+`127.0.0.1:8080`. If you truly need a corporate/system proxy for Gemini, set
+`GEMMA_USE_SYSTEM_PROXY=true`.
+
+TLS verification uses `certifi` by default. You can override the CA bundle with
+`GEMMA_CA_BUNDLE=/path/to/cacert.pem`.
+
+If Gemma is unavailable or returns invalid output, the proxy fails open and allows
+the request.
 
 ## HTTPS inspection model
 
@@ -38,7 +72,8 @@ HTTPS inspection works through TLS interception (MITM):
 6. The proxy opens a second TLS session to the real upstream website.
 7. The proxy can then inspect request URLs, headers, and responses before forwarding them.
 
-This repo now implements that model for request URL inspection. Response forwarding is in place too, so response-body inspection can be added later in the same MITM path.
+This repo now implements that model for request URL inspection and HTML-response
+classification.
 
 ## Browser setup
 

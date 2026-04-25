@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import http.client
+import hashlib
 import json
 import logging
 import os
@@ -20,10 +21,13 @@ if __package__ in {None, ""}:
 from gateway.cache import DecisionCache
 from gateway.proxy.certificates import CertificateAuthorityManager
 from gateway.proxy.filtering import (
+    ProxyPolicyDecision,
     build_proxy_target_url,
     evaluate_proxy_decision,
+    is_likely_main_document_request,
     normalize_http_target,
 )
+from gateway.proxy.gemma import GeminiGemmaClassifier
 from gateway.store import MongoGatewayStore
 
 PROXY_LISTEN_HOST: Final[str] = os.environ.get("PROXY_LISTEN_HOST", "0.0.0.0")
@@ -35,6 +39,9 @@ PROXY_CACHE_TTL_SECONDS: Final[float] = float(
     os.environ.get("PROXY_CACHE_TTL_SECONDS", os.environ.get("CACHE_TTL_SECONDS", "300"))
 )
 ENABLE_HTTPS_MITM: Final[bool] = os.environ.get("PROXY_ENABLE_HTTPS_MITM", "true").lower() == "true"
+ENABLE_GEMMA_CLASSIFIER: Final[bool] = (
+    os.environ.get("PROXY_ENABLE_GEMMA_CLASSIFIER", "false").lower() == "true"
+)
 PROXY_CERTS_DIR: Final[str] = os.environ.get(
     "PROXY_CERTS_DIR",
     os.path.join(os.path.dirname(__file__), "certs"),
@@ -43,6 +50,7 @@ PROXY_CERTS_DIR: Final[str] = os.environ.get(
 store = MongoGatewayStore.from_env()
 decision_cache = DecisionCache(ttl_seconds=PROXY_CACHE_TTL_SECONDS)
 cert_manager = CertificateAuthorityManager(PROXY_CERTS_DIR)
+gemma_classifier = GeminiGemmaClassifier.from_env() if ENABLE_GEMMA_CLASSIFIER else None
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -88,6 +96,26 @@ def read_request_body(handler: BaseHTTPRequestHandler) -> bytes:
     return handler.rfile.read(int(content_length))
 
 
+def get_focus_config_version(user: dict | None) -> str | None:
+    if user is None:
+        return None
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return None
+
+    updated_at = focus_config.get("updatedAt")
+    if updated_at is None:
+        return None
+
+    return str(updated_at)
+
+
+def build_llm_cache_key(payload: dict) -> str:
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def write_raw_response(
     stream,
     *,
@@ -115,11 +143,9 @@ def build_block_page(target_url: str, reason: str) -> bytes:
     <style>
       body {{
         margin: 0;
-        font-family: "Plus Jakarta Sans", "Inter", sans-serif;
-        background: radial-gradient(circle at top left, #e0e7ff, transparent 40%),
-                    radial-gradient(circle at bottom right, #fce7f3, transparent 40%),
-                    linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 100%);
-        color: #1e1b4b;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: linear-gradient(180deg, #fff8ef 0%, #f5ead8 100%);
+        color: #1c241f;
         display: grid;
         place-items: center;
         min-height: 100vh;
@@ -127,29 +153,26 @@ def build_block_page(target_url: str, reason: str) -> bytes:
       }}
       .card {{
         max-width: 720px;
-        background: rgba(255, 255, 255, 0.8);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(99, 102, 241, 0.2);
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(28, 36, 31, 0.12);
         border-radius: 24px;
         padding: 28px;
-        box-shadow: 0 12px 30px rgba(79, 70, 229, 0.15);
+        box-shadow: 0 18px 50px rgba(53, 36, 18, 0.1);
       }}
       h1 {{
         margin: 0 0 12px;
         font-size: 2rem;
-        color: #4f46e5;
       }}
       p {{
         line-height: 1.65;
         margin: 0 0 12px;
-        color: #4338ca;
       }}
       code {{
         display: block;
         padding: 12px;
         border-radius: 14px;
-        background: rgba(99, 102, 241, 0.1);
-        color: #6366f1;
+        background: #10231c;
+        color: #d9f4e8;
         overflow-wrap: anywhere;
       }}
     </style>
@@ -168,10 +191,27 @@ def build_block_page(target_url: str, reason: str) -> bytes:
     return html.encode("utf-8")
 
 
-def relay_http_response(handler: BaseHTTPRequestHandler, upstream_response: http.client.HTTPResponse) -> None:
-    body = upstream_response.read()
-    handler.send_response(upstream_response.status, upstream_response.reason)
-    for header, value in upstream_response.getheaders():
+def read_upstream_response(
+    upstream_response: http.client.HTTPResponse,
+) -> tuple[int, str, list[tuple[str, str]], bytes]:
+    return (
+        upstream_response.status,
+        upstream_response.reason or "OK",
+        list(upstream_response.getheaders()),
+        upstream_response.read(),
+    )
+
+
+def send_http_response(
+    handler: BaseHTTPRequestHandler,
+    *,
+    status_code: int,
+    reason: str,
+    headers: list[tuple[str, str]],
+    body: bytes,
+) -> None:
+    handler.send_response(status_code, reason)
+    for header, value in headers:
         if header.lower() in HOP_BY_HOP_HEADERS or header.lower() == "content-length":
             continue
         handler.send_header(header, value)
@@ -182,27 +222,142 @@ def relay_http_response(handler: BaseHTTPRequestHandler, upstream_response: http
         handler.wfile.write(body)
 
 
-def relay_https_response(stream, upstream_response: http.client.HTTPResponse) -> None:
-    body = upstream_response.read()
+def send_https_response(
+    stream,
+    *,
+    status_code: int,
+    reason: str,
+    headers: list[tuple[str, str]],
+    body: bytes,
+) -> None:
     headers = {
         header: value
-        for header, value in upstream_response.getheaders()
+        for header, value in headers
         if header.lower() not in HOP_BY_HOP_HEADERS and header.lower() != "content-length"
     }
     headers["Content-Length"] = str(len(body))
     headers["Connection"] = "close"
     write_raw_response(
         stream,
-        status_code=upstream_response.status,
-        reason=upstream_response.reason or "OK",
+        status_code=status_code,
+        reason=reason,
         headers=headers,
         body=body,
     )
 
 
+def get_header_value(headers: list[tuple[str, str]], name: str) -> str | None:
+    lowered_name = name.lower()
+    for header, value in headers:
+        if header.lower() == lowered_name:
+            return value
+    return None
+
+
 class TimeHoleProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "TimeHoleProxy/0.2"
+
+    def _cache_final_decision(
+        self,
+        source_ip: str,
+        target_url: str,
+        blocked: bool,
+        config_version: str | None,
+    ) -> None:
+        decision_cache.cache_decision(
+            source_ip,
+            target_url,
+            blocked,
+            config_version=config_version,
+        )
+
+    def _classify_with_gemma_cache(
+        self,
+        *,
+        source_ip: str,
+        config_version: str | None,
+        payload: dict,
+    ) -> str:
+        if gemma_classifier is None:
+            return "allow"
+
+        cache_key = build_llm_cache_key(payload)
+        cached_decision = decision_cache.get_cached_llm_decision(
+            source_ip,
+            cache_key,
+            config_version=config_version,
+        )
+        if cached_decision is not None:
+            return cached_decision
+
+        try:
+            decision = gemma_classifier(payload)
+        except Exception:
+            logging.exception(
+                "Gemma classifier failed for phase=%s url=%s",
+                payload.get("phase"),
+                payload.get("target_url"),
+            )
+            return "allow"
+
+        decision_cache.cache_llm_decision(
+            source_ip,
+            cache_key,
+            decision,
+            config_version=config_version,
+        )
+        return decision
+
+    def _build_policy(
+        self,
+        *,
+        source_ip: str,
+        target_url: str,
+        path: str,
+        query: str,
+        user: dict | None,
+        cached_blocked: bool | None,
+        config_version: str | None,
+        response_body: bytes | None = None,
+        response_content_type: str | None = None,
+    ):
+        return evaluate_proxy_decision(
+            source_ip=source_ip,
+            target_url=target_url,
+            path=path,
+            query=query,
+            user=user,
+            cached_blocked=cached_blocked,
+            cache_decision=lambda ip, url, blocked: self._cache_final_decision(
+                ip,
+                url,
+                blocked,
+                config_version,
+            ),
+            response_body=response_body,
+            response_content_type=response_content_type,
+            semantic_classifier=lambda payload: self._classify_with_gemma_cache(
+                source_ip=source_ip,
+                config_version=config_version,
+                payload=payload,
+            ),
+        )
+
+    def _non_document_policy(
+        self,
+        *,
+        source_ip: str,
+        target_url: str,
+        config_version: str | None,
+    ):
+        self._cache_final_decision(source_ip, target_url, False, config_version)
+        return ProxyPolicyDecision(
+            blocked=False,
+            cache_hit=False,
+            decision_reason="non_document_request",
+            blacklist_size=0,
+        )
 
     def do_CONNECT(self) -> None:
         # A CONNECT request upgrades this socket into either a raw tunnel or a
@@ -305,16 +460,34 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
 
         user = store.get_user_context(source_ip)
         username = str(user.get("username")) if user and user.get("username") else None
-        cached_blocked = decision_cache.get_cached_decision(source_ip, target_url)
-        policy = evaluate_proxy_decision(
-            source_ip=source_ip,
-            target_url=target_url,
-            path=path,
-            query=query,
-            user=user,
-            cached_blocked=cached_blocked,
-            cache_decision=decision_cache.cache_decision,
+        config_version = get_focus_config_version(user)
+        if not is_likely_main_document_request(
+            method=self.command,
+            path=target_url,
+            headers=dict(self.headers.items()),
+        ):
+            policy = self._non_document_policy(
+                source_ip=source_ip,
+                target_url=target_url,
+                config_version=config_version,
+            )
+        else:
+            policy = None
+        cached_blocked = decision_cache.get_cached_decision(
+            source_ip,
+            target_url,
+            config_version=config_version,
         )
+        if policy is None:
+            policy = self._build_policy(
+                source_ip=source_ip,
+                target_url=target_url,
+                path=path,
+                query=query,
+                user=user,
+                cached_blocked=cached_blocked,
+                config_version=config_version,
+            )
 
         if policy.blocked:
             body = build_block_page(target_url, policy.decision_reason)
@@ -382,8 +555,65 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                 headers=upstream_headers,
             )
             upstream_response = connection.getresponse()
-            relay_http_response(self, upstream_response)
-            status_code = upstream_response.status
+            status_code, reason, response_headers, response_body = read_upstream_response(upstream_response)
+            final_policy = policy
+
+            if policy.decision_reason == "gemma_needs_html":
+                final_policy = self._build_policy(
+                    source_ip=source_ip,
+                    target_url=target_url,
+                    path=path,
+                    query=query,
+                    user=user,
+                    cached_blocked=None,
+                    config_version=config_version,
+                    response_body=response_body,
+                    response_content_type=get_header_value(response_headers, "Content-Type"),
+                )
+
+            if final_policy.blocked:
+                body = build_block_page(target_url, final_policy.decision_reason)
+                logging.info(
+                    "Blocked HTTP request for %s from source ip %s via reason=%s",
+                    target_url,
+                    source_ip,
+                    final_policy.decision_reason,
+                )
+                self.send_response(403, "Blocked by TimeHole proxy")
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(body)
+                self._log_proxy(
+                    source_ip=source_ip,
+                    username=username,
+                    user=user,
+                    method=self.command,
+                    scheme=scheme,
+                    host=host,
+                    path=path,
+                    query=query,
+                    target_url=target_url,
+                    blocked=True,
+                    cache_hit=final_policy.cache_hit,
+                    decision_reason=final_policy.decision_reason,
+                    status_code=403,
+                    upstream_latency_ms=None,
+                    https_tunnel=False,
+                    mitm_enabled=False,
+                    error=None,
+                )
+                return
+
+            send_http_response(
+                self,
+                status_code=status_code,
+                reason=reason,
+                headers=response_headers,
+                body=response_body,
+            )
+            policy = final_policy
         except Exception as upstream_error:
             self.send_error(502, f"Proxy upstream failure: {upstream_error}")
             status_code = 502
@@ -559,16 +789,34 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
             path = parsed.path or "/"
             query = parsed.query
             target_url = build_proxy_target_url("https", host, path, query)
-            cached_blocked = decision_cache.get_cached_decision(source_ip, target_url)
-            policy = evaluate_proxy_decision(
-                source_ip=source_ip,
-                target_url=target_url,
-                path=path,
-                query=query,
-                user=user,
-                cached_blocked=cached_blocked,
-                cache_decision=decision_cache.cache_decision,
+            config_version = get_focus_config_version(user)
+            if not is_likely_main_document_request(
+                method=method,
+                path=target_url,
+                headers=headers,
+            ):
+                policy = self._non_document_policy(
+                    source_ip=source_ip,
+                    target_url=target_url,
+                    config_version=config_version,
+                )
+            else:
+                policy = None
+            cached_blocked = decision_cache.get_cached_decision(
+                source_ip,
+                target_url,
+                config_version=config_version,
             )
+            if policy is None:
+                policy = self._build_policy(
+                    source_ip=source_ip,
+                    target_url=target_url,
+                    path=path,
+                    query=query,
+                    user=user,
+                    cached_blocked=cached_blocked,
+                    config_version=config_version,
+                )
 
             if policy.blocked:
                 blocked_body = build_block_page(target_url, policy.decision_reason)
@@ -635,8 +883,72 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
                     headers=upstream_headers,
                 )
                 upstream_response = connection.getresponse()
-                relay_https_response(writer, upstream_response)
-                status_code = upstream_response.status
+                status_code, reason, response_headers, response_body = read_upstream_response(
+                    upstream_response
+                )
+                final_policy = policy
+
+                if policy.decision_reason == "gemma_needs_html":
+                    final_policy = self._build_policy(
+                        source_ip=source_ip,
+                        target_url=target_url,
+                        path=path,
+                        query=query,
+                        user=user,
+                        cached_blocked=None,
+                        config_version=config_version,
+                        response_body=response_body,
+                        response_content_type=get_header_value(response_headers, "Content-Type"),
+                    )
+
+                if final_policy.blocked:
+                    blocked_body = build_block_page(target_url, final_policy.decision_reason)
+                    logging.info(
+                        "Blocked HTTPS request for %s from source ip %s via reason=%s",
+                        target_url,
+                        source_ip,
+                        final_policy.decision_reason,
+                    )
+                    write_raw_response(
+                        writer,
+                        status_code=403,
+                        reason="Blocked by TimeHole proxy",
+                        headers={
+                            "Content-Type": "text/html; charset=utf-8",
+                            "Content-Length": str(len(blocked_body)),
+                            "Connection": "close",
+                        },
+                        body=blocked_body,
+                    )
+                    self._log_proxy(
+                        source_ip=source_ip,
+                        username=username,
+                        user=user,
+                        method=method,
+                        scheme="https",
+                        host=host,
+                        path=path,
+                        query=query,
+                        target_url=target_url,
+                        blocked=True,
+                        cache_hit=final_policy.cache_hit,
+                        decision_reason=final_policy.decision_reason,
+                        status_code=403,
+                        upstream_latency_ms=None,
+                        https_tunnel=True,
+                        mitm_enabled=True,
+                        error=None,
+                    )
+                    return
+
+                send_https_response(
+                    writer,
+                    status_code=status_code,
+                    reason=reason,
+                    headers=response_headers,
+                    body=response_body,
+                )
+                policy = final_policy
             except Exception as upstream_error:
                 error = str(upstream_error)
                 error_body = error.encode("utf-8", "replace")
@@ -714,6 +1026,7 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         mitm_enabled: bool,
         error: str | None,
     ) -> None:
+        pass
         store.log_proxy_event(
             source_ip=source_ip,
             username=username,
@@ -735,8 +1048,8 @@ class TimeHoleProxyHandler(BaseHTTPRequestHandler):
         )
 
     def log_message(self, format: str, *args) -> None:
-        logging.info("%s - %s", self.client_address[0], format % args)
-
+       ## logging.info("%s - %s", self.client_address[0], format % args)
+       pass
 
 def serve() -> None:
     logging.basicConfig(

@@ -89,6 +89,17 @@ def get_user_blacklist(user: dict[str, Any] | None) -> list[str]:
     return normalize_blacklist(focus_config.get("blacklist", []))
 
 
+def get_user_manual_blacklist(user: dict[str, Any] | None) -> list[str]:
+    if user is None:
+        return []
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return []
+
+    return normalize_blacklist(focus_config.get("manualBlacklist", []))
+
+
 def evaluate_policy_decision(
     *,
     source_ip: str,
@@ -99,12 +110,22 @@ def evaluate_policy_decision(
     cache_decision: Callable[[str, str, bool], None],
     now_provider: Callable[[str], datetime] | None = None,
 ) -> PolicyDecision:
-    if user is not None and not is_filtering_active(user, now_provider=now_provider):
+    if user is None:
+        return PolicyDecision(
+            blocked=False,
+            cache_hit=False,
+            decision_reason="no_user_config",
+            blacklist_size=0,
+        )
+
+    blacklist = get_user_blacklist(user)
+
+    if not is_filtering_active(user, now_provider=now_provider):
         return PolicyDecision(
             blocked=False,
             cache_hit=False,
             decision_reason="focus_inactive",
-            blacklist_size=len(get_user_blacklist(user)),
+            blacklist_size=len(blacklist),
         )
 
     if cached_blocked is not None:
@@ -112,21 +133,14 @@ def evaluate_policy_decision(
             blocked=cached_blocked,
             cache_hit=True,
             decision_reason="cache_blocked" if cached_blocked else "cache_allowed",
-            blacklist_size=len(get_user_blacklist(user)),
+            blacklist_size=len(blacklist),
         )
 
-    blacklist = (
-        get_user_blacklist(user)
-        if user is not None
-        else source_blacklist_loader(source_ip)
-    )
     blocked = is_blocked(query_name, blacklist)
     cache_decision(source_ip, query_name, blocked)
 
     if blocked:
         decision_reason = "blacklist_match"
-    elif user is None:
-        decision_reason = "no_user_config"
     else:
         decision_reason = "allowed_no_match"
 

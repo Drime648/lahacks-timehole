@@ -84,6 +84,21 @@ def summarize_response(data: bytes) -> tuple[str | None, int, list[str]]:
     return (response_code, len(response.rr), answers[:10])
 
 
+def get_focus_config_version(user: dict | None) -> str | None:
+    if user is None:
+        return None
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return None
+
+    updated_at = focus_config.get("updatedAt")
+    if updated_at is None:
+        return None
+
+    return str(updated_at)
+
+
 def relay_to_upstream(data: bytes) -> bytes:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as upstream:
         upstream.settimeout(UPSTREAM_TIMEOUT_SECONDS)
@@ -120,8 +135,13 @@ def serve() -> None:
                     logging.warning("Received DNS query without a question section")
                     continue
 
-                cached_blocked = decision_cache.get_cached_decision(source_ip, query_name)
                 user = store.get_user_context(source_ip)
+                config_version = get_focus_config_version(user)
+                cached_blocked = decision_cache.get_cached_decision(
+                    source_ip,
+                    query_name,
+                    config_version=config_version,
+                )
                 username = str(user.get("username")) if user and user.get("username") else None
                 policy = evaluate_policy_decision(
                     source_ip=source_ip,
@@ -129,7 +149,12 @@ def serve() -> None:
                     user=user,
                     cached_blocked=cached_blocked,
                     source_blacklist_loader=store.get_blacklist_for_source_ip,
-                    cache_decision=decision_cache.cache_decision,
+                    cache_decision=lambda ip, query, blocked: decision_cache.cache_decision(
+                        ip,
+                        query,
+                        blocked,
+                        config_version=config_version,
+                    ),
                 )
                 blocked = policy.blocked
                 cache_hit = policy.cache_hit

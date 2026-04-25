@@ -8,11 +8,20 @@ from time import monotonic
 class CachedDecision:
     blocked: bool
     expires_at: float
+    config_version: str | None = None
+
+
+@dataclass
+class CachedLlmDecision:
+    decision: str
+    expires_at: float
+    config_version: str | None = None
 
 
 @dataclass
 class SourceIpCache:
     decisions: dict[str, CachedDecision] = field(default_factory=dict)
+    llm_decisions: dict[str, CachedLlmDecision] = field(default_factory=dict)
 
 
 class DecisionCache:
@@ -34,7 +43,12 @@ class DecisionCache:
             self._cache[source_ip] = cache
         return cache
 
-    def get_cached_decision(self, source_ip: str, query_name: str) -> bool | None:
+    def get_cached_decision(
+        self,
+        source_ip: str,
+        query_name: str,
+        config_version: str | None = None,
+    ) -> bool | None:
         cache = self._cache.get(source_ip)
         if cache is None:
             return None
@@ -45,15 +59,64 @@ class DecisionCache:
 
         if decision.expires_at <= monotonic():
             del cache.decisions[query_name]
-            if not cache.decisions:
+            if not cache.decisions and not cache.llm_decisions:
+                del self._cache[source_ip]
+            return None
+
+        if decision.config_version != config_version:
+            del cache.decisions[query_name]
+            if not cache.decisions and not cache.llm_decisions:
                 del self._cache[source_ip]
             return None
 
         return decision.blocked
 
-    def cache_decision(self, source_ip: str, query_name: str, blocked: bool) -> None:
+    def cache_decision(
+        self,
+        source_ip: str,
+        query_name: str,
+        blocked: bool,
+        config_version: str | None = None,
+    ) -> None:
         cache = self.get_source_cache(source_ip)
         cache.decisions[query_name] = CachedDecision(
             blocked=blocked,
             expires_at=monotonic() + self.ttl_seconds,
+            config_version=config_version,
+        )
+
+    def get_cached_llm_decision(
+        self,
+        source_ip: str,
+        cache_key: str,
+        config_version: str | None = None,
+    ) -> str | None:
+        cache = self._cache.get(source_ip)
+        if cache is None:
+            return None
+
+        decision = cache.llm_decisions.get(cache_key)
+        if decision is None:
+            return None
+
+        if decision.expires_at <= monotonic() or decision.config_version != config_version:
+            del cache.llm_decisions[cache_key]
+            if not cache.decisions and not cache.llm_decisions:
+                del self._cache[source_ip]
+            return None
+
+        return decision.decision
+
+    def cache_llm_decision(
+        self,
+        source_ip: str,
+        cache_key: str,
+        decision: str,
+        config_version: str | None = None,
+    ) -> None:
+        cache = self.get_source_cache(source_ip)
+        cache.llm_decisions[cache_key] = CachedLlmDecision(
+            decision=decision,
+            expires_at=monotonic() + self.ttl_seconds,
+            config_version=config_version,
         )

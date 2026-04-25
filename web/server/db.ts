@@ -1,5 +1,5 @@
 import { MongoClient, type Collection } from "mongodb";
-import type { UserDocument } from "./types.js";
+import type { DnsLogDocument, UserDocument } from "./types.js";
 
 const mongoUri = process.env.MONGODB_URI;
 if (!mongoUri) {
@@ -23,9 +23,14 @@ export async function initDb(): Promise<void> {
     await usersCollection().dropIndex("email_1");
   }
   await usersCollection().createIndex({ username: 1 }, { unique: true });
+  await dnsLogsCollection().createIndex({ sourceIp: 1, createdAt: -1 });
   initialized = true;
 }
 
 export function usersCollection(): Collection<UserDocument> {
   return client.db(dbName).collection<UserDocument>("users");
+}
+
+export function dnsLogsCollection(): Collection<DnsLogDocument> {
+  return client.db(dbName).collection<DnsLogDocument>("dns_logs");
 }

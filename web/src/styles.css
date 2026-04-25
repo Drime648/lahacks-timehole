@@ -255,7 +255,12 @@ button[type="submit"] {
 .schedule-card,
 .prompt-box,
 .panel-copy,
-.suggestions-layout {
+.suggestions-layout,
+.dashboard-grid,
+.dashboard-panel,
+.metrics-grid,
+.logs-list,
+.bars-list {
   display: grid;
   gap: 14px;
 }
@@ -292,6 +297,33 @@ button[type="submit"] {
 .category-grid,
 .meta-strip {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metrics-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-grid {
+  grid-template-columns: 0.9fr 1.1fr;
+}
+
+.dashboard-panel,
+.metric-card,
+.log-row {
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.metric-card span {
+  display: block;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.metric-card strong {
+  font-size: 2rem;
 }
 
 .day-chip,
@@ -337,6 +369,82 @@ button[type="submit"] {
   padding: 16px;
 }
 
+.bar-row {
+  display: grid;
+  gap: 8px;
+}
+
+.bar-row-meta,
+.log-row-top,
+.log-row-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bar-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(28, 36, 31, 0.08);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #63b796);
+}
+
+.bar-fill.secondary {
+  background: linear-gradient(90deg, #2d5d91, #6ea3dc);
+}
+
+.activity-list {
+  display: grid;
+  gap: 14px;
+}
+
+.activity-row {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.activity-row-meta,
+.activity-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.activity-stats {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.logs-list {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.log-row.blocked {
+  border-left: 4px solid var(--danger);
+}
+
+.log-row.allowed {
+  border-left: 4px solid var(--accent);
+}
+
+.log-row-meta {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .meta-box {
   padding: 14px 16px;
   border-radius: 18px;
@@ -370,7 +478,9 @@ button[type="submit"] {
   .time-grid,
   .category-grid,
   .meta-strip,
-  .suggestions-layout {
+  .suggestions-layout,
+  .dashboard-grid,
+  .metrics-grid {
     grid-template-columns: 1fr;
   }
 

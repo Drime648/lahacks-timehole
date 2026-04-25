@@ -4,8 +4,9 @@ import logging
 import os
 import socket
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from time import monotonic
-from typing import Final
+from typing import Any, Final
 
 from dnslib import A, AAAA, DNSHeader, DNSQuestion, DNSRecord, QTYPE, RR
 from pymongo import MongoClient
@@ -24,6 +25,9 @@ CACHE_TTL_SECONDS: Final[float] = float(os.environ.get("CACHE_TTL_SECONDS", "300
 mongo_client = MongoClient(MONGODB_URI) if MONGODB_URI else None
 users_collection = (
     mongo_client[MONGODB_DB_NAME]["users"] if mongo_client is not None else None
+)
+dns_logs_collection = (
+    mongo_client[MONGODB_DB_NAME]["dns_logs"] if mongo_client is not None else None
 )
 
 
@@ -56,10 +60,14 @@ def get_blacklist_for_source_ip(source_ip: str) -> list[str]:
     if users_collection is None:
         return []
 
-    user = users_collection.find_one(
-        {"focusConfig.sourceIp": source_ip},
-        {"focusConfig.blacklist": 1, "username": 1},
-    )
+    try:
+        user = users_collection.find_one(
+            {"focusConfig.sourceIp": source_ip},
+            {"focusConfig.blacklist": 1, "username": 1},
+        )
+    except Exception:
+        logging.exception("Failed to load blacklist for source ip %s", source_ip)
+        return []
 
     if not user:
         return []
@@ -69,6 +77,72 @@ def get_blacklist_for_source_ip(source_ip: str) -> list[str]:
         return []
 
     return [str(entry).lower() for entry in blacklist]
+
+
+def get_user_context(source_ip: str) -> dict[str, Any] | None:
+    if users_collection is None:
+        return None
+
+    try:
+        return users_collection.find_one(
+            {"focusConfig.sourceIp": source_ip},
+            {
+                "username": 1,
+                "focusConfig.blacklist": 1,
+                "focusConfig.blockedCategories": 1,
+            },
+        )
+    except Exception:
+        logging.exception("Failed to load user context for source ip %s", source_ip)
+        return None
+
+
+def log_dns_event(
+    *,
+    source_ip: str,
+    username: str | None,
+    user_matched: bool,
+    query_name: str,
+    qtype: str,
+    blocked: bool,
+    cache_hit: bool,
+    decision_reason: str,
+    blacklist_size: int,
+    response_code: str | None,
+    answer_count: int,
+    answers: list[str],
+    upstream_latency_ms: float | None,
+    error: str | None,
+) -> None:
+    if dns_logs_collection is None:
+        return
+
+    try:
+        dns_logs_collection.insert_one(
+            {
+                "sourceIp": source_ip,
+                "username": username,
+                "userMatched": user_matched,
+                "queryName": query_name,
+                "queryType": qtype,
+                "blocked": blocked,
+                "cacheHit": cache_hit,
+                "decisionReason": decision_reason,
+                "blacklistSize": blacklist_size,
+                "responseCode": response_code,
+                "answerCount": answer_count,
+                "answers": answers,
+                "upstreamLatencyMs": upstream_latency_ms,
+                "error": error,
+                "createdAt": datetime.now(UTC).isoformat(),
+            }
+        )
+    except Exception:
+        logging.exception(
+            "Failed to write DNS log entry for %s from source ip %s",
+            query_name,
+            source_ip,
+        )
 
 
 def get_source_cache(source_ip: str) -> SourceIpCache:
@@ -127,6 +201,29 @@ def build_blackhole_response(request: DNSRecord, query_name: str, qtype: str) ->
     return reply.pack()
 
 
+def build_servfail_response(request: DNSRecord) -> bytes:
+    reply = request.reply()
+    reply.header.rcode = 2
+    return reply.pack()
+
+
+def summarize_response(data: bytes) -> tuple[str | None, int, list[str]]:
+    try:
+        response = DNSRecord.parse(data)
+    except Exception:
+        return None, 0, []
+
+    answers = []
+    for answer in response.rr:
+        try:
+            answers.append(str(answer.rdata))
+        except Exception:
+            continue
+
+    response_code = str(response.header.rcode) if response.header else None
+    return (response_code, len(response.rr), answers[:10])
+
+
 def relay_to_upstream(data: bytes) -> bytes:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as upstream:
         upstream.settimeout(UPSTREAM_TIMEOUT_SECONDS)
@@ -164,8 +261,18 @@ def serve() -> None:
                     continue
 
                 cached_blocked = get_cached_decision(source_ip, query_name)
+                user = get_user_context(source_ip)
+                username = str(user.get("username")) if user and user.get("username") else None
+                user_blacklist = (
+                    [str(entry).lower() for entry in user.get("focusConfig", {}).get("blacklist", [])]
+                    if user
+                    else []
+                )
+                blacklist_size = len(user_blacklist)
                 if cached_blocked is not None:
                     blocked = cached_blocked
+                    cache_hit = True
+                    decision_reason = "cache_blocked" if blocked else "cache_allowed"
                     logging.info(
                         "Cache hit for %s from source ip %s: %s",
                         query_name,
@@ -173,9 +280,21 @@ def serve() -> None:
                         "blocked" if blocked else "allowed",
                     )
                 else:
-                    blacklist = get_blacklist_for_source_ip(source_ip)
+                    cache_hit = False
+                    blacklist = (
+                        user_blacklist
+                        if user is not None
+                        else get_blacklist_for_source_ip(source_ip)
+                    )
+                    blacklist_size = len(blacklist)
                     blocked = is_blocked(query_name, blacklist)
                     cache_decision(source_ip, query_name, blocked)
+                    if blocked:
+                        decision_reason = "blacklist_match"
+                    elif user is None:
+                        decision_reason = "no_user_config"
+                    else:
+                        decision_reason = "allowed_no_match"
                     logging.info(
                         "Cache miss for %s from source ip %s; evaluated against %s blacklist entries",
                         query_name,
@@ -190,14 +309,48 @@ def serve() -> None:
                         source_ip,
                     )
                     response = build_blackhole_response(request, query_name, qtype)
+                    response_code = "NOERROR"
+                    answer_count = 1
+                    answers = ["::" if qtype == "AAAA" else "0.0.0.0"]
+                    upstream_latency_ms = None
+                    error = None
                 else:
                     logging.info(
                         "Relaying query for %s from source ip %s",
                         query_name,
                         source_ip,
                     )
-                    response = relay_to_upstream(data)
+                    start = monotonic()
+                    try:
+                        response = relay_to_upstream(data)
+                        upstream_latency_ms = round((monotonic() - start) * 1000, 2)
+                        response_code, answer_count, answers = summarize_response(response)
+                        error = None
+                    except Exception as relay_error:
+                        upstream_latency_ms = round((monotonic() - start) * 1000, 2)
+                        response = build_servfail_response(request)
+                        response_code = "SERVFAIL"
+                        answer_count = 0
+                        answers = []
+                        error = str(relay_error)
+                        decision_reason = "upstream_error"
 
+                log_dns_event(
+                    source_ip=source_ip,
+                    username=username,
+                    user_matched=user is not None,
+                    query_name=query_name,
+                    qtype=qtype,
+                    blocked=blocked,
+                    cache_hit=cache_hit,
+                    decision_reason=decision_reason,
+                    blacklist_size=blacklist_size,
+                    response_code=response_code,
+                    answer_count=answer_count,
+                    answers=answers,
+                    upstream_latency_ms=upstream_latency_ms,
+                    error=error,
+                )
                 server.sendto(response, client_address)
             except Exception:
                 logging.exception(

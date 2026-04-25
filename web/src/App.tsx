@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
-import { getCurrentUser, login, logout, register, saveConfig } from "./api";
-import type { BlockCategory, FocusConfig, ScheduleWindow, User } from "./types";
+import { getCurrentUser, getDnsDashboard, login, logout, register, saveConfig } from "./api";
+import type { BlockCategory, DnsDashboard, FocusConfig, ScheduleWindow, User } from "./types";
 
 const suggestionPrompts = [
   "I am a software engineer working on backend systems, APIs, debugging, and reading technical documentation. GitHub, docs, cloud dashboards, and Stack Overflow are usually on-topic.",
@@ -35,6 +35,7 @@ const onboardingSteps = [
 ] as const;
 
 type SettingsTab = (typeof onboardingSteps)[number]["id"];
+type MainTab = "home" | SettingsTab;
 
 function makeScheduleWindow(): ScheduleWindow {
   return {
@@ -419,6 +420,242 @@ function SettingsSection({
   );
 }
 
+function DashboardHome({
+  dashboard
+}: {
+  dashboard: DnsDashboard | null;
+}) {
+  if (!dashboard) {
+    return <div className="empty-state">No DNS relay metrics yet for this source IP.</div>;
+  }
+
+  return (
+    <div className="panel-stack">
+      <div className="metrics-grid">
+        <div className="metric-card">
+          <span>Total DNS queries</span>
+          <strong>{dashboard.totals.totalQueries}</strong>
+        </div>
+        <div className="metric-card">
+          <span>Blocked queries</span>
+          <strong>{dashboard.totals.blockedQueries}</strong>
+        </div>
+        <div className="metric-card">
+          <span>Allowed queries</span>
+          <strong>{dashboard.totals.allowedQueries}</strong>
+        </div>
+        <div className="metric-card">
+          <span>Cache hit rate</span>
+          <strong>{(dashboard.totals.cacheHitRate * 100).toFixed(0)}%</strong>
+        </div>
+        <div className="metric-card">
+          <span>Block rate</span>
+          <strong>{(dashboard.totals.blockRate * 100).toFixed(0)}%</strong>
+        </div>
+        <div className="metric-card">
+          <span>Unique domains</span>
+          <strong>{dashboard.totals.uniqueDomains}</strong>
+        </div>
+        <div className="metric-card">
+          <span>Avg upstream latency</span>
+          <strong>
+            {dashboard.totals.avgLatencyMs != null
+              ? `${dashboard.totals.avgLatencyMs} ms`
+              : "n/a"}
+          </strong>
+        </div>
+      </div>
+
+      <div className="dashboard-grid">
+        <div className="dashboard-panel">
+          <div className="panel-copy">
+            <h3>Top queried domains</h3>
+            <p>Most frequently requested domains for your source IP.</p>
+          </div>
+          {dashboard.topQueriedDomains.length === 0 ? (
+            <div className="empty-state">No DNS domains queried yet.</div>
+          ) : (
+            <div className="bars-list">
+              {dashboard.topQueriedDomains.map((entry) => (
+                <div className="bar-row" key={entry.queryName}>
+                  <div className="bar-row-meta">
+                    <span>{entry.queryName}</span>
+                    <strong>{entry.count}</strong>
+                  </div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill secondary"
+                      style={{
+                        width: `${(entry.count / dashboard.topQueriedDomains[0].count) * 100}%`
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="dashboard-panel">
+          <div className="panel-copy">
+            <h3>Top blocked domains</h3>
+            <p>Most frequently blackholed DNS lookups for your current source IP.</p>
+          </div>
+          {dashboard.topBlockedDomains.length === 0 ? (
+            <div className="empty-state">No blocked DNS domains yet.</div>
+          ) : (
+            <div className="bars-list">
+              {dashboard.topBlockedDomains.map((entry) => (
+                <div className="bar-row" key={entry.queryName}>
+                  <div className="bar-row-meta">
+                    <span>{entry.queryName}</span>
+                    <strong>{entry.count}</strong>
+                  </div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill"
+                      style={{
+                        width: `${(entry.count / dashboard.topBlockedDomains[0].count) * 100}%`
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="dashboard-grid">
+        <div className="dashboard-panel">
+          <div className="panel-copy">
+            <h3>Decision breakdown</h3>
+            <p>Why the relay allowed, blocked, or failed each DNS request.</p>
+          </div>
+          {dashboard.decisionBreakdown.length === 0 ? (
+            <div className="empty-state">No DNS decisions recorded yet.</div>
+          ) : (
+            <div className="bars-list">
+              {dashboard.decisionBreakdown.map((entry) => (
+                <div className="bar-row" key={entry.decisionReason}>
+                  <div className="bar-row-meta">
+                    <span>{entry.decisionReason}</span>
+                    <strong>{entry.count}</strong>
+                  </div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill secondary"
+                      style={{
+                        width: `${(entry.count / dashboard.decisionBreakdown[0].count) * 100}%`
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="dashboard-panel">
+          <div className="panel-copy">
+            <h3>Recent hourly activity</h3>
+            <p>A simple recent timeline of DNS traffic and blocked volume.</p>
+          </div>
+          {dashboard.recentActivity.length === 0 ? (
+            <div className="empty-state">No hourly DNS activity has been logged yet.</div>
+          ) : (
+            <div className="activity-list">
+              {dashboard.recentActivity.map((bucket) => (
+                <div className="activity-row" key={bucket.hour}>
+                  <div className="activity-row-meta">
+                    <span>{new Date(bucket.hour).toLocaleString()}</span>
+                    <strong>{bucket.total} total</strong>
+                  </div>
+                  <div className="activity-stats">
+                    <span>{bucket.blocked} blocked</span>
+                    <span>{bucket.total - bucket.blocked} allowed</span>
+                  </div>
+                  <div className="bar-track">
+                    <div
+                      className="bar-fill"
+                      style={{
+                        width: `${(bucket.total / dashboard.recentActivity.reduce((max, item) => Math.max(max, item.total), 1)) * 100}%`
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="dashboard-panel">
+        <div className="panel-copy">
+          <h3>Query type breakdown</h3>
+          <p>Distribution of DNS request types passing through the relay.</p>
+        </div>
+        {dashboard.queryTypeBreakdown.length === 0 ? (
+          <div className="empty-state">No query types recorded yet.</div>
+        ) : (
+          <div className="bars-list">
+            {dashboard.queryTypeBreakdown.map((entry) => (
+              <div className="bar-row" key={entry.queryType}>
+                <div className="bar-row-meta">
+                  <span>{entry.queryType}</span>
+                  <strong>{entry.count}</strong>
+                </div>
+                <div className="bar-track">
+                  <div
+                    className="bar-fill"
+                    style={{
+                      width: `${(entry.count / dashboard.queryTypeBreakdown[0].count) * 100}%`
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="dashboard-panel">
+        <div className="panel-copy">
+          <h3>Recent DNS query log</h3>
+          <p>Pi-hole-style per-query detail for the most recent relay decisions.</p>
+        </div>
+        {dashboard.recentLogs.length === 0 ? (
+          <div className="empty-state">No recent DNS query log entries yet.</div>
+        ) : (
+          <div className="logs-list">
+            {dashboard.recentLogs.map((log, index) => (
+              <div className={`log-row ${log.blocked ? "blocked" : "allowed"}`} key={`${log.createdAt}-${index}`}>
+                <div className="log-row-top">
+                  <strong>{log.queryName}</strong>
+                  <span>{log.queryType}</span>
+                </div>
+                <div className="log-row-meta">
+                  <span>{log.blocked ? "Blocked" : "Allowed"}</span>
+                  <span>{log.cacheHit ? "Cache hit" : "Cache miss"}</span>
+                  <span>{log.decisionReason || "n/a"}</span>
+                  <span>{log.responseCode || "n/a"}</span>
+                  <span>{log.upstreamLatencyMs != null ? `${log.upstreamLatencyMs} ms` : "no upstream"}</span>
+                </div>
+                <div className="log-row-meta">
+                  <span>{new Date(log.createdAt).toLocaleString()}</span>
+                  <span>{log.userMatched ? `user ${log.username}` : "no matched user"}</span>
+                  <span>{log.answerCount ?? 0} answers</span>
+                  <span>{(log.answers || []).slice(0, 3).join(", ") || "no answers"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [config, setConfig] = useState<FocusConfig | null>(null);
@@ -428,7 +665,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [blacklistDraft, setBlacklistDraft] = useState("");
   const [isOnboarding, setIsOnboarding] = useState(false);
-  const [activeTab, setActiveTab] = useState<SettingsTab>("schedule");
+  const [activeTab, setActiveTab] = useState<MainTab>("home");
+  const [dashboard, setDashboard] = useState<DnsDashboard | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -439,6 +677,12 @@ export function App() {
           setConfig(response.user.focusConfig);
           setBlacklistDraft(response.user.focusConfig.blacklist.join("\n"));
           setIsOnboarding(false);
+          setActiveTab("home");
+          try {
+            setDashboard(await getDnsDashboard());
+          } catch {
+            setDashboard(null);
+          }
         }
       } catch {
         // ignore unauthenticated initial state
@@ -459,8 +703,13 @@ export function App() {
       setUser(response.user);
       setConfig(response.user.focusConfig);
       setBlacklistDraft(response.user.focusConfig.blacklist.join("\n"));
-      setActiveTab("schedule");
+      setActiveTab(authMode === "register" ? "schedule" : "home");
       setIsOnboarding(authMode === "register");
+      try {
+        setDashboard(await getDnsDashboard());
+      } catch {
+        setDashboard(null);
+      }
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Authentication failed.");
     } finally {
@@ -475,7 +724,8 @@ export function App() {
     setBlacklistDraft("");
     setError(null);
     setIsOnboarding(false);
-    setActiveTab("schedule");
+    setActiveTab("home");
+    setDashboard(null);
   }
 
   async function persistConfig(nextConfig: FocusConfig) {
@@ -489,6 +739,11 @@ export function App() {
     const response = await saveConfig(payload);
     setConfig(response.config);
     setBlacklistDraft(response.config.blacklist.join("\n"));
+    try {
+      setDashboard(await getDnsDashboard());
+    } catch {
+      setDashboard(null);
+    }
   }
 
   async function handleSave(event: FormEvent) {
@@ -622,7 +877,7 @@ export function App() {
             </div>
 
             <SettingsSection
-              tab={activeTab}
+              tab={activeTab as SettingsTab}
               config={config}
               setConfig={setConfig}
               blacklistDraft={blacklistDraft}
@@ -653,12 +908,12 @@ export function App() {
       ) : (
         <form className="tabs-shell" onSubmit={handleSave}>
           <nav className="card tabs-nav" aria-label="Settings tabs">
-            {onboardingSteps.map((tab) => (
+            {[{ id: "home", title: "Home" }, ...onboardingSteps].map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => setActiveTab(tab.id as MainTab)}
               >
                 {tab.title}
               </button>
@@ -667,10 +922,16 @@ export function App() {
 
           <section className="card panel tab-panel">
             <div className="panel-header">
-              <h2>{onboardingSteps.find((tab) => tab.id === activeTab)?.title}</h2>
+              <h2>
+                {activeTab === "home"
+                  ? "Home"
+                  : onboardingSteps.find((tab) => tab.id === activeTab)?.title}
+              </h2>
               <p>
+                {activeTab === "home" &&
+                  "Your DNS relay metrics and recent DNS activity appear here by default."}
                 {activeTab === "schedule" &&
-                  "Edit your work blocks and study mode settings in this tab."}
+                  "The previous main settings content now lives here under Study Schedule."}
                 {activeTab === "focus" &&
                   "Refine the paragraph that explains what productive work looks like for you."}
                 {activeTab === "categories" &&
@@ -680,23 +941,29 @@ export function App() {
               </p>
             </div>
 
-            <SettingsSection
-              tab={activeTab}
-              config={config}
-              setConfig={setConfig}
-              blacklistDraft={blacklistDraft}
-              setBlacklistDraft={setBlacklistDraft}
-            />
+            {activeTab === "home" ? (
+              <DashboardHome dashboard={dashboard} />
+            ) : (
+              <>
+                <SettingsSection
+                  tab={activeTab as SettingsTab}
+                  config={config}
+                  setConfig={setConfig}
+                  blacklistDraft={blacklistDraft}
+                  setBlacklistDraft={setBlacklistDraft}
+                />
 
-            <div className="save-row">
-              <div>
-                <h3>Save changes</h3>
-                <p>Saving updates your user document in MongoDB and refreshes the stored source IP from this request.</p>
-              </div>
-              <button type="submit" disabled={saving}>
-                {saving ? "Saving..." : "Save settings"}
-              </button>
-            </div>
+                <div className="save-row">
+                  <div>
+                    <h3>Save changes</h3>
+                    <p>Saving updates your user document in MongoDB and refreshes the stored source IP from this request.</p>
+                  </div>
+                  <button type="submit" disabled={saving}>
+                    {saving ? "Saving..." : "Save settings"}
+                  </button>
+                </div>
+              </>
+            )}
 
             {error ? <div className="error-banner">{error}</div> : null}
 

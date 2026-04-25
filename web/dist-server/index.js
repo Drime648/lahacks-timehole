@@ -5,7 +5,7 @@ import express from "express";
 import session from "express-session";
 import MongoStore from "connect-mongo";
 import { buildEffectiveBlacklist } from "./blacklists.js";
-import { initDb, usersCollection } from "./db.js";
+import { dnsLogsCollection, initDb, usersCollection } from "./db.js";
 import { getRequestIp, hashPassword, normalizeUsername, verifyPassword } from "./auth.js";
 const app = express();
 const port = Number(process.env.WEB_API_PORT || 4000);
@@ -130,6 +130,147 @@ app.get("/api/config", async (request, response) => {
             ...user.focusConfig,
             blacklist: user.focusConfig.manualBlacklist
         }
+    });
+});
+app.get("/api/dns-dashboard", async (request, response) => {
+    const user = await requireUser(request.session.username);
+    if (!user) {
+        response.status(401).json({ error: "Not authenticated." });
+        return;
+    }
+    const sourceIp = user.focusConfig.sourceIp;
+    const totalQueries = await dnsLogsCollection().countDocuments({ sourceIp });
+    const blockedQueries = await dnsLogsCollection().countDocuments({
+        sourceIp,
+        blocked: true
+    });
+    const allowedQueries = await dnsLogsCollection().countDocuments({
+        sourceIp,
+        blocked: false
+    });
+    const cacheHits = await dnsLogsCollection().countDocuments({
+        sourceIp,
+        cacheHit: true
+    });
+    const uniqueDomains = await dnsLogsCollection().distinct("queryName", { sourceIp });
+    const avgLatencyResult = await dnsLogsCollection()
+        .aggregate([
+        {
+            $match: {
+                sourceIp,
+                upstreamLatencyMs: { $type: "number" }
+            }
+        },
+        {
+            $group: {
+                _id: null,
+                avgLatencyMs: { $avg: "$upstreamLatencyMs" }
+            }
+        },
+        {
+            $project: {
+                _id: 0,
+                avgLatencyMs: { $round: ["$avgLatencyMs", 2] }
+            }
+        }
+    ])
+        .toArray();
+    const topBlockedDomains = await dnsLogsCollection()
+        .aggregate([
+        { $match: { sourceIp, blocked: true } },
+        { $group: { _id: "$queryName", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 5 },
+        { $project: { _id: 0, queryName: "$_id", count: 1 } }
+    ])
+        .toArray();
+    const topQueriedDomains = await dnsLogsCollection()
+        .aggregate([
+        { $match: { sourceIp } },
+        { $group: { _id: "$queryName", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 8 },
+        { $project: { _id: 0, queryName: "$_id", count: 1 } }
+    ])
+        .toArray();
+    const queryTypeBreakdown = await dnsLogsCollection()
+        .aggregate([
+        { $match: { sourceIp } },
+        { $group: { _id: "$queryType", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $project: { _id: 0, queryType: "$_id", count: 1 } }
+    ])
+        .toArray();
+    const decisionBreakdown = await dnsLogsCollection()
+        .aggregate([
+        { $match: { sourceIp } },
+        {
+            $group: {
+                _id: { $ifNull: ["$decisionReason", "unknown"] },
+                count: { $sum: 1 }
+            }
+        },
+        { $sort: { count: -1 } },
+        { $project: { _id: 0, decisionReason: "$_id", count: 1 } }
+    ])
+        .toArray();
+    const recentActivity = await dnsLogsCollection()
+        .aggregate([
+        { $match: { sourceIp } },
+        {
+            $addFields: {
+                createdAtDate: {
+                    $dateFromString: {
+                        dateString: "$createdAt"
+                    }
+                }
+            }
+        },
+        {
+            $group: {
+                _id: {
+                    $dateToString: {
+                        format: "%Y-%m-%dT%H:00:00Z",
+                        date: "$createdAtDate"
+                    }
+                },
+                total: { $sum: 1 },
+                blocked: {
+                    $sum: {
+                        $cond: [{ $eq: ["$blocked", true] }, 1, 0]
+                    }
+                }
+            }
+        },
+        { $sort: { _id: -1 } },
+        { $limit: 24 },
+        { $sort: { _id: 1 } },
+        { $project: { _id: 0, hour: "$_id", total: 1, blocked: 1 } }
+    ])
+        .toArray();
+    const recentLogs = await dnsLogsCollection()
+        .find({ sourceIp }, { projection: { _id: 0 } })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .toArray();
+    response.json({
+        sourceIp,
+        totals: {
+            totalQueries,
+            blockedQueries,
+            allowedQueries,
+            cacheHits,
+            cacheHitRate: totalQueries === 0 ? 0 : cacheHits / totalQueries,
+            blockRate: totalQueries === 0 ? 0 : blockedQueries / totalQueries,
+            uniqueDomains: uniqueDomains.length,
+            avgLatencyMs: avgLatencyResult[0]?.avgLatencyMs ?? null
+        },
+        topQueriedDomains,
+        topBlockedDomains,
+        queryTypeBreakdown,
+        decisionBreakdown,
+        recentActivity,
+        recentLogs
     });
 });
 app.put("/api/config", async (request, response) => {

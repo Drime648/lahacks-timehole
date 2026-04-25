@@ -1,4 +1,4 @@
-import type { FocusConfig, User } from "./types";
+import type { DnsDashboard, FocusConfig, User } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -45,4 +45,8 @@ export function saveConfig(config: FocusConfig): Promise<{ config: FocusConfig }
     method: "PUT",
     body: JSON.stringify(config)
   });
+}
+
+export function getDnsDashboard(): Promise<DnsDashboard> {
+  return request("/api/dns-dashboard");
 }

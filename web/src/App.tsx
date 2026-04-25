@@ -1156,28 +1156,25 @@ export function App() {
             {error ? <div className="error-banner">{error}</div> : null}
 
             <div className="wizard-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={saving}
-                onClick={() => {
-                  if (currentStep.id === "proxy") {
-                    setIsOnboarding(false);
-                    return;
-                  }
-
-                  if (currentStepIndex > 0) {
+              {currentStepIndex > 0 ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={saving}
+                  onClick={() => {
                     setActiveTab(onboardingSteps[currentStepIndex - 1].id);
-                  }
-                }}
-              >
-                {currentStep.id === "proxy" ? "Skip for now" : "Back"}
-              </button>
+                  }}
+                >
+                  Back
+                </button>
+              ) : (
+                <div />
+              )}
               <button type="submit" disabled={saving}>
                 {saving
                   ? "Saving..."
                   : currentStepIndex === onboardingSteps.length - 1
-                    ? "Finish setup"
+                    ? "Finish"
                     : "Next"}
               </button>
             </div>

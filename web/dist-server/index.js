@@ -19,6 +19,7 @@ const defaultConfig = (sourceIp) => ({
     categoryBlacklist: [],
     focusSummary: "",
     sourceIp,
+    timezone: "America/Los_Angeles",
     updatedAt: new Date().toISOString()
 });
 app.use(express.json());
@@ -294,6 +295,7 @@ app.put("/api/config", async (request, response) => {
         categoryBlacklist: blacklistParts.categoryBlacklist,
         focusSummary: String(request.body.focusSummary || ""),
         sourceIp,
+        timezone: String(request.body.timezone || user.focusConfig.timezone || "America/Los_Angeles"),
         updatedAt: new Date().toISOString()
     };
     await usersCollection().updateOne({ username: user.username }, {

@@ -274,11 +274,116 @@ button[type="submit"] {
   gap: 12px;
 }
 
+.schedule-header > div > h3,
+.focus-mode-banner h3 {
+  margin: 0;
+}
+
+.schedule-header > div > p,
+.focus-mode-banner p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
 .schedule-card {
   padding: 16px;
   border-radius: 20px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.64);
+}
+
+.schedule-calendar {
+  display: grid;
+  grid-template-columns: 82px repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  overflow-x: auto;
+}
+
+.schedule-time-column,
+.schedule-day-column {
+  display: grid;
+  grid-template-rows: 58px repeat(48, 12px);
+  gap: 2px;
+}
+
+.calendar-corner,
+.calendar-day-heading {
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.calendar-day-heading {
+  padding: 10px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.calendar-day-heading span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.time-label {
+  font-size: 0.76rem;
+  color: var(--muted);
+  transform: translateY(-8px);
+}
+
+.calendar-slot {
+  width: 100%;
+  padding: 0;
+  border: 1px solid rgba(28, 36, 31, 0.06);
+  background: rgba(255, 255, 255, 0.58);
+  border-radius: 6px;
+}
+
+.calendar-slot.occupied {
+  background: linear-gradient(180deg, rgba(21, 118, 92, 0.9), rgba(19, 92, 72, 0.92));
+}
+
+.calendar-slot.preview {
+  background: rgba(21, 118, 92, 0.35);
+}
+
+.calendar-slot.preview-remove {
+  background: rgba(154, 67, 55, 0.3);
+}
+
+.schedule-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.schedule-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+}
+
+.legend-swatch.selected {
+  background: var(--accent);
+}
+
+.legend-swatch.preview {
+  background: rgba(21, 118, 92, 0.35);
+}
+
+.legend-swatch.remove {
+  background: rgba(154, 67, 55, 0.3);
 }
 
 .day-grid,
@@ -432,6 +537,17 @@ button[type="submit"] {
   overflow: auto;
 }
 
+.focus-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 22px;
+  border: 1px solid rgba(21, 118, 92, 0.22);
+  background: linear-gradient(135deg, rgba(21, 118, 92, 0.12), rgba(255, 255, 255, 0.82));
+}
+
 .log-row.blocked {
   border-left: 4px solid var(--danger);
 }
@@ -491,7 +607,8 @@ button[type="submit"] {
   .wizard-actions,
   .save-row,
   .schedule-header,
-  .schedule-top {
+  .schedule-top,
+  .focus-mode-banner {
     flex-direction: column;
     align-items: stretch;
   }

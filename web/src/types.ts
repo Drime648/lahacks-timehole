@@ -22,6 +22,7 @@ export interface FocusConfig {
   categoryBlacklist?: string[];
   focusSummary: string;
   sourceIp: string;
+  timezone: string;
   updatedAt: string;
 }
 

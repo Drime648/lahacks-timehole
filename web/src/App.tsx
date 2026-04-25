@@ -37,14 +37,113 @@ const onboardingSteps = [
 type SettingsTab = (typeof onboardingSteps)[number]["id"];
 type MainTab = "home" | SettingsTab;
 
-function makeScheduleWindow(): ScheduleWindow {
+const SLOT_COUNT = 48;
+const SLOT_MINUTES = 30;
+
+function getBrowserTimezone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Los_Angeles";
+}
+
+function withLocalDefaults(config: FocusConfig): FocusConfig {
   return {
-    id: crypto.randomUUID(),
-    label: "Focus Block",
-    days: [1, 2, 3, 4, 5],
-    start: "09:00",
-    end: "17:00"
+    ...config,
+    timezone: config.timezone || getBrowserTimezone()
   };
+}
+
+function timeToSlot(value: string): number {
+  const [hoursRaw, minutesRaw] = value.split(":");
+  const hours = Number(hoursRaw || 0);
+  const minutes = Number(minutesRaw || 0);
+  const totalMinutes = (hours * 60) + minutes;
+  return Math.max(0, Math.min(SLOT_COUNT, Math.round(totalMinutes / SLOT_MINUTES)));
+}
+
+function slotToTime(slot: number): string {
+  const totalMinutes = slot * SLOT_MINUTES;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function buildWeeklyCells(schedules: ScheduleWindow[]): boolean[][] {
+  const grid = Array.from({ length: 7 }, () => Array.from({ length: SLOT_COUNT }, () => false));
+
+  for (const schedule of schedules) {
+    const startSlot = Math.max(0, Math.min(SLOT_COUNT - 1, timeToSlot(schedule.start)));
+    const endSlot = Math.max(startSlot + 1, Math.min(SLOT_COUNT, timeToSlot(schedule.end)));
+
+    for (const day of schedule.days) {
+      if (day < 0 || day > 6) {
+        continue;
+      }
+
+      for (let slot = startSlot; slot < endSlot; slot += 1) {
+        grid[day][slot] = true;
+      }
+    }
+  }
+
+  return grid;
+}
+
+function schedulesFromWeeklyCells(cells: boolean[][]): ScheduleWindow[] {
+  const schedules: ScheduleWindow[] = [];
+
+  for (let day = 0; day < cells.length; day += 1) {
+    let slot = 0;
+    while (slot < SLOT_COUNT) {
+      if (!cells[day][slot]) {
+        slot += 1;
+        continue;
+      }
+
+      const start = slot;
+      while (slot < SLOT_COUNT && cells[day][slot]) {
+        slot += 1;
+      }
+
+      schedules.push({
+        id: crypto.randomUUID(),
+        label: "Focus Block",
+        days: [day],
+        start: slotToTime(start),
+        end: slotToTime(slot)
+      });
+    }
+  }
+
+  return schedules;
+}
+
+function applySelectionToSchedules(
+  schedules: ScheduleWindow[],
+  day: number,
+  startSlot: number,
+  endSlot: number,
+  mode: "add" | "remove"
+): ScheduleWindow[] {
+  const cells = buildWeeklyCells(schedules);
+  const rangeStart = Math.max(0, Math.min(startSlot, endSlot));
+  const rangeEnd = Math.min(SLOT_COUNT - 1, Math.max(startSlot, endSlot));
+
+  for (let slot = rangeStart; slot <= rangeEnd; slot += 1) {
+    cells[day][slot] = mode === "add";
+  }
+
+  return schedulesFromWeeklyCells(cells);
+}
+
+function formatDaySchedule(day: number, schedules: ScheduleWindow[]): string {
+  const matches = schedules
+    .filter((entry) => entry.days.includes(day))
+    .sort((left, right) => left.start.localeCompare(right.start));
+
+  if (matches.length === 0) {
+    return "No focus blocks";
+  }
+
+  return matches.map((entry) => `${entry.start}-${entry.end}`).join(", ");
 }
 
 function promptPreview(config: FocusConfig): string {
@@ -136,137 +235,129 @@ function ScheduleEditor({
   config: FocusConfig;
   setConfig: (config: FocusConfig) => void;
 }) {
+  const [dragState, setDragState] = useState<{
+    day: number;
+    startSlot: number;
+    currentSlot: number;
+    mode: "add" | "remove";
+  } | null>(null);
+  const normalizedSchedules = schedulesFromWeeklyCells(buildWeeklyCells(config.schedules));
+  const occupiedCells = buildWeeklyCells(normalizedSchedules);
+  const previewKeys = new Set<string>();
+
+  if (dragState) {
+    const previewStart = Math.min(dragState.startSlot, dragState.currentSlot);
+    const previewEnd = Math.max(dragState.startSlot, dragState.currentSlot);
+    for (let slot = previewStart; slot <= previewEnd; slot += 1) {
+      previewKeys.add(`${dragState.day}-${slot}`);
+    }
+  }
+
+  useEffect(() => {
+    if (!dragState) {
+      return undefined;
+    }
+
+    const currentDragState = dragState;
+
+    function handlePointerUp() {
+      setConfig({
+        ...config,
+        schedules: applySelectionToSchedules(
+          normalizedSchedules,
+          currentDragState.day,
+          currentDragState.startSlot,
+          currentDragState.currentSlot,
+          currentDragState.mode
+        )
+      });
+      setDragState(null);
+    }
+
+    window.addEventListener("mouseup", handlePointerUp);
+    return () => window.removeEventListener("mouseup", handlePointerUp);
+  }, [config, dragState, normalizedSchedules, setConfig]);
+
   return (
     <div className="panel-stack">
-      <label className="toggle-row">
-        <input
-          type="checkbox"
-          checked={config.studyModeEnabled}
-          onChange={(event) =>
-            setConfig({ ...config, studyModeEnabled: event.target.checked })
-          }
-        />
-        <span>Enable study mode immediately</span>
-      </label>
-
       <div className="schedule-block">
         <div className="schedule-header">
-          <h3>Focus / Work Times</h3>
+          <div>
+            <h3>Weekly Focus Calendar</h3>
+            <p>Click and drag down a day column to mark when filtering should be active.</p>
+          </div>
           <button
             type="button"
             className="secondary-button"
-            onClick={() =>
-              setConfig({
-                ...config,
-                schedules: [...config.schedules, makeScheduleWindow()]
-              })
-            }
+            onClick={() => setConfig({ ...config, schedules: [] })}
           >
-            Add time block
+            Clear calendar
           </button>
         </div>
 
-        {config.schedules.length === 0 ? (
-          <div className="empty-state">No work blocks yet. Add your first weekly focus block.</div>
-        ) : null}
+        <div className="schedule-calendar">
+          <div className="schedule-time-column">
+            <div className="calendar-corner" />
+            {Array.from({ length: SLOT_COUNT }, (_, slot) => (
+              <div className="time-label" key={slot}>
+                {slot % 2 === 0 ? slotToTime(slot) : ""}
+              </div>
+            ))}
+          </div>
 
-        {config.schedules.map((window) => (
-          <div className="schedule-card" key={window.id}>
-            <div className="schedule-top">
-              <input
-                value={window.label}
-                onChange={(event) =>
-                  setConfig({
-                    ...config,
-                    schedules: config.schedules.map((entry) =>
-                      entry.id === window.id
-                        ? { ...entry, label: event.target.value }
-                        : entry
-                    )
-                  })
-                }
-              />
-              <button
-                type="button"
-                className="danger-button"
-                onClick={() =>
-                  setConfig({
-                    ...config,
-                    schedules: config.schedules.filter((entry) => entry.id !== window.id)
-                  })
-                }
-              >
-                Remove
-              </button>
-            </div>
+          {dayLabels.map((day) => (
+            <div className="schedule-day-column" key={day.value}>
+              <div className="calendar-day-heading">
+                <strong>{day.label}</strong>
+                <span>{formatDaySchedule(day.value, normalizedSchedules)}</span>
+              </div>
 
-            <div className="day-grid">
-              {dayLabels.map((day) => (
-                <label key={day.value} className="day-chip">
-                  <input
-                    type="checkbox"
-                    checked={window.days.includes(day.value)}
-                    onChange={(event) =>
-                      setConfig({
-                        ...config,
-                        schedules: config.schedules.map((entry) => {
-                          if (entry.id !== window.id) {
-                            return entry;
-                          }
+              {Array.from({ length: SLOT_COUNT }, (_, slot) => {
+                const occupied = occupiedCells[day.value][slot];
+                const inPreview = previewKeys.has(`${day.value}-${slot}`);
+                const previewMode = dragState?.mode;
 
-                          return {
-                            ...entry,
-                            days: event.target.checked
-                              ? [...entry.days, day.value].sort()
-                              : entry.days.filter((value) => value !== day.value)
-                          };
-                        })
+                return (
+                  <button
+                    key={`${day.value}-${slot}`}
+                    type="button"
+                    className={`calendar-slot ${occupied ? "occupied" : ""} ${inPreview ? "preview" : ""} ${previewMode === "remove" && inPreview ? "preview-remove" : ""}`}
+                    onMouseDown={() =>
+                      setDragState({
+                        day: day.value,
+                        startSlot: slot,
+                        currentSlot: slot,
+                        mode: occupied ? "remove" : "add"
                       })
                     }
+                    onMouseEnter={() => {
+                      if (dragState && dragState.day === day.value) {
+                        setDragState({ ...dragState, currentSlot: slot });
+                      }
+                    }}
                   />
-                  <span>{day.label}</span>
-                </label>
-              ))}
+                );
+              })}
             </div>
+          ))}
+        </div>
 
-            <div className="time-grid">
-              <label>
-                Start
-                <input
-                  type="time"
-                  value={window.start}
-                  onChange={(event) =>
-                    setConfig({
-                      ...config,
-                      schedules: config.schedules.map((entry) =>
-                        entry.id === window.id
-                          ? { ...entry, start: event.target.value }
-                          : entry
-                      )
-                    })
-                  }
-                />
-              </label>
-              <label>
-                End
-                <input
-                  type="time"
-                  value={window.end}
-                  onChange={(event) =>
-                    setConfig({
-                      ...config,
-                      schedules: config.schedules.map((entry) =>
-                        entry.id === window.id
-                          ? { ...entry, end: event.target.value }
-                          : entry
-                      )
-                    })
-                  }
-                />
-              </label>
-            </div>
+        <div className="schedule-legend">
+          <span><i className="legend-swatch selected" /> Focus block</span>
+          <span><i className="legend-swatch preview" /> Drag preview</span>
+          <span><i className="legend-swatch remove" /> Drag over an existing block to remove it</span>
+        </div>
+
+        {normalizedSchedules.length === 0 ? (
+          <div className="empty-state">
+            No work blocks yet. Drag over the weekly calendar to create your first focus block.
           </div>
-        ))}
+        ) : null}
+
+        <div className="meta-box">
+          <span>Timezone used for schedule enforcement</span>
+          <strong>{config.timezone}</strong>
+        </div>
       </div>
     </div>
   );
@@ -421,16 +512,53 @@ function SettingsSection({
 }
 
 function DashboardHome({
-  dashboard
+  dashboard,
+  focusModeEnabled,
+  onToggleFocusMode,
+  togglingFocusMode
 }: {
   dashboard: DnsDashboard | null;
+  focusModeEnabled: boolean;
+  onToggleFocusMode: () => Promise<void>;
+  togglingFocusMode: boolean;
 }) {
   if (!dashboard) {
-    return <div className="empty-state">No DNS relay metrics yet for this source IP.</div>;
+    return (
+      <div className="panel-stack">
+        <div className="focus-mode-banner">
+          <div>
+            <h3>Manual Focus Mode</h3>
+            <p>Turn filtering on immediately, even outside your calendar blocks.</p>
+          </div>
+          <button type="button" onClick={() => void onToggleFocusMode()} disabled={togglingFocusMode}>
+            {togglingFocusMode
+              ? "Updating..."
+              : focusModeEnabled
+                ? "Disable focus mode"
+                : "Enable focus mode"}
+          </button>
+        </div>
+        <div className="empty-state">No DNS relay metrics yet for this source IP.</div>
+      </div>
+    );
   }
 
   return (
     <div className="panel-stack">
+      <div className="focus-mode-banner">
+        <div>
+          <h3>Manual Focus Mode</h3>
+          <p>{focusModeEnabled ? "Filtering is currently forced on." : "Filtering will only run during your focus calendar unless you manually enable it here."}</p>
+        </div>
+        <button type="button" onClick={() => void onToggleFocusMode()} disabled={togglingFocusMode}>
+          {togglingFocusMode
+            ? "Updating..."
+            : focusModeEnabled
+              ? "Disable focus mode"
+              : "Enable focus mode"}
+        </button>
+      </div>
+
       <div className="metrics-grid">
         <div className="metric-card">
           <span>Total DNS queries</span>
@@ -667,6 +795,7 @@ export function App() {
   const [isOnboarding, setIsOnboarding] = useState(false);
   const [activeTab, setActiveTab] = useState<MainTab>("home");
   const [dashboard, setDashboard] = useState<DnsDashboard | null>(null);
+  const [togglingFocusMode, setTogglingFocusMode] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -674,7 +803,7 @@ export function App() {
         const response = await getCurrentUser();
         if (response.user) {
           setUser(response.user);
-          setConfig(response.user.focusConfig);
+          setConfig(withLocalDefaults(response.user.focusConfig));
           setBlacklistDraft(response.user.focusConfig.blacklist.join("\n"));
           setIsOnboarding(false);
           setActiveTab("home");
@@ -701,7 +830,7 @@ export function App() {
           ? await login(username, password)
           : await register(username, password);
       setUser(response.user);
-      setConfig(response.user.focusConfig);
+      setConfig(withLocalDefaults(response.user.focusConfig));
       setBlacklistDraft(response.user.focusConfig.blacklist.join("\n"));
       setActiveTab(authMode === "register" ? "schedule" : "home");
       setIsOnboarding(authMode === "register");
@@ -731,6 +860,7 @@ export function App() {
   async function persistConfig(nextConfig: FocusConfig) {
     const payload: FocusConfig = {
       ...nextConfig,
+      timezone: nextConfig.timezone || getBrowserTimezone(),
       blacklist: blacklistDraft
         .split(/\r?\n/)
         .map((entry) => entry.trim())
@@ -743,6 +873,26 @@ export function App() {
       setDashboard(await getDnsDashboard());
     } catch {
       setDashboard(null);
+    }
+  }
+
+  async function handleToggleFocusMode() {
+    if (!config) {
+      return;
+    }
+
+    setTogglingFocusMode(true);
+    setError(null);
+    try {
+      await persistConfig({
+        ...config,
+        studyModeEnabled: !config.studyModeEnabled,
+        timezone: config.timezone || getBrowserTimezone()
+      });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Could not update focus mode.");
+    } finally {
+      setTogglingFocusMode(false);
     }
   }
 
@@ -942,7 +1092,12 @@ export function App() {
             </div>
 
             {activeTab === "home" ? (
-              <DashboardHome dashboard={dashboard} />
+              <DashboardHome
+                dashboard={dashboard}
+                focusModeEnabled={config.studyModeEnabled}
+                onToggleFocusMode={handleToggleFocusMode}
+                togglingFocusMode={togglingFocusMode}
+              />
             ) : (
               <>
                 <SettingsSection

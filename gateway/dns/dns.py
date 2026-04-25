@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, Final
+from zoneinfo import ZoneInfo
 
 from dnslib import A, AAAA, DNSHeader, DNSQuestion, DNSRecord, QTYPE, RR
 from pymongo import MongoClient
@@ -90,6 +91,9 @@ def get_user_context(source_ip: str) -> dict[str, Any] | None:
                 "username": 1,
                 "focusConfig.blacklist": 1,
                 "focusConfig.blockedCategories": 1,
+                "focusConfig.studyModeEnabled": 1,
+                "focusConfig.schedules": 1,
+                "focusConfig.timezone": 1,
             },
         )
     except Exception:
@@ -183,6 +187,53 @@ def is_blocked(query_name: str, blacklist: list[str]) -> bool:
     return any(entry in query_name for entry in blacklist)
 
 
+def parse_time_to_minutes(value: str) -> int:
+    try:
+        hours_raw, minutes_raw = value.split(":", 1)
+        return (int(hours_raw) * 60) + int(minutes_raw)
+    except Exception:
+        return 0
+
+
+def is_filtering_active(user: dict[str, Any] | None) -> bool:
+    if user is None:
+        return False
+
+    focus_config = user.get("focusConfig", {})
+    if not isinstance(focus_config, dict):
+        return False
+
+    if bool(focus_config.get("studyModeEnabled")):
+        return True
+
+    timezone_name = str(focus_config.get("timezone") or "America/Los_Angeles")
+    try:
+        now = datetime.now(ZoneInfo(timezone_name))
+    except Exception:
+        now = datetime.now()
+
+    current_day = (now.weekday() + 1) % 7
+    current_minutes = (now.hour * 60) + now.minute
+    schedules = focus_config.get("schedules", [])
+    if not isinstance(schedules, list):
+        return False
+
+    for schedule in schedules:
+        if not isinstance(schedule, dict):
+            continue
+
+        days = schedule.get("days", [])
+        if not isinstance(days, list) or current_day not in days:
+            continue
+
+        start_minutes = parse_time_to_minutes(str(schedule.get("start", "00:00")))
+        end_minutes = parse_time_to_minutes(str(schedule.get("end", "00:00")))
+        if start_minutes <= current_minutes < end_minutes:
+            return True
+
+    return False
+
+
 def build_blackhole_response(request: DNSRecord, query_name: str, qtype: str) -> bytes:
     reply = request.reply()
     reply.header = DNSHeader(
@@ -269,7 +320,17 @@ def serve() -> None:
                     else []
                 )
                 blacklist_size = len(user_blacklist)
-                if cached_blocked is not None:
+                filtering_active = is_filtering_active(user)
+                if not filtering_active:
+                    blocked = False
+                    cache_hit = False
+                    decision_reason = "focus_inactive"
+                    logging.info(
+                        "Focus inactive for %s from source ip %s; bypassing blacklist",
+                        query_name,
+                        source_ip,
+                    )
+                elif cached_blocked is not None:
                     blocked = cached_blocked
                     cache_hit = True
                     decision_reason = "cache_blocked" if blocked else "cache_allowed"

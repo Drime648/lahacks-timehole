@@ -18,6 +18,8 @@ export interface FocusConfig {
   schedules: ScheduleWindow[];
   blockedCategories: BlockCategory[];
   blacklist: string[];
+  manualBlacklist?: string[];
+  categoryBlacklist?: string[];
   focusSummary: string;
   sourceIp: string;
   updatedAt: string;

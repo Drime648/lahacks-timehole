@@ -1,0 +1,9 @@
+amazon
+ebay
+etsy
+target
+walmart
+bestbuy
+temu
+aliexpress
+shopify

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import session from "express-session";
 import MongoStore from "connect-mongo";
+import { buildEffectiveBlacklist } from "./blacklists.js";
 import { initDb, usersCollection } from "./db.js";
 import { getRequestIp, hashPassword, normalizeUsername, verifyPassword } from "./auth.js";
 const app = express();
@@ -14,6 +15,8 @@ const defaultConfig = (sourceIp) => ({
     schedules: [],
     blockedCategories: [],
     blacklist: [],
+    manualBlacklist: [],
+    categoryBlacklist: [],
     focusSummary: "",
     sourceIp,
     updatedAt: new Date().toISOString()
@@ -41,7 +44,10 @@ function sanitizeUser(user) {
         updatedAt: user.updatedAt,
         registrationIp: user.registrationIp,
         lastLoginIp: user.lastLoginIp,
-        focusConfig: user.focusConfig
+        focusConfig: {
+            ...user.focusConfig,
+            blacklist: user.focusConfig.manualBlacklist
+        }
     };
 }
 async function requireUser(username) {
@@ -119,7 +125,12 @@ app.get("/api/config", async (request, response) => {
         response.status(401).json({ error: "Not authenticated." });
         return;
     }
-    response.json({ config: user.focusConfig });
+    response.json({
+        config: {
+            ...user.focusConfig,
+            blacklist: user.focusConfig.manualBlacklist
+        }
+    });
 });
 app.put("/api/config", async (request, response) => {
     const user = await requireUser(request.session.username);
@@ -128,13 +139,18 @@ app.put("/api/config", async (request, response) => {
         return;
     }
     const sourceIp = getRequestIp(request);
+    const blacklistParts = buildEffectiveBlacklist(Array.isArray(request.body.blockedCategories)
+        ? request.body.blockedCategories
+        : [], Array.isArray(request.body.blacklist) ? request.body.blacklist : []);
     const nextConfig = {
         studyModeEnabled: Boolean(request.body.studyModeEnabled),
         schedules: Array.isArray(request.body.schedules) ? request.body.schedules : [],
         blockedCategories: Array.isArray(request.body.blockedCategories)
             ? request.body.blockedCategories
             : [],
-        blacklist: Array.isArray(request.body.blacklist) ? request.body.blacklist : [],
+        blacklist: blacklistParts.effectiveBlacklist,
+        manualBlacklist: blacklistParts.manualBlacklist,
+        categoryBlacklist: blacklistParts.categoryBlacklist,
         focusSummary: String(request.body.focusSummary || ""),
         sourceIp,
         updatedAt: new Date().toISOString()
@@ -145,7 +161,12 @@ app.put("/api/config", async (request, response) => {
             updatedAt: nextConfig.updatedAt
         }
     });
-    response.json({ config: nextConfig });
+    response.json({
+        config: {
+            ...nextConfig,
+            blacklist: nextConfig.manualBlacklist
+        }
+    });
 });
 if (process.env.NODE_ENV === "production") {
     const __filename = fileURLToPath(import.meta.url);

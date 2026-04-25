@@ -1,0 +1,9 @@
+nytimes
+cnn
+foxnews
+washingtonpost
+bloomberg
+wsj
+reuters
+politico
+theguardian

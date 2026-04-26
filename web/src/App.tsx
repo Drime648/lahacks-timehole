@@ -822,8 +822,9 @@ function DashboardHome({
             <div className="empty-state">No hourly DNS activity has been logged yet.</div>
           ) : (
             <div className="activity-list">
-              {dashboard.recentActivity.map((bucket) => (
+              {dashboard.recentActivity.slice(0, 3).map((bucket) => (
                 <div className="activity-row" key={bucket.hour}>
+
                   <div className="activity-row-meta">
                     <span>{new Date(bucket.hour).toLocaleString()}</span>
                     <strong>{bucket.total} total</strong>

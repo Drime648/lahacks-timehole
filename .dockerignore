@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+node_modules
+web/node_modules
+web/dist
+web/dist-server
+.venv
+gateway/.venv
+__pycache__
+*.pyc
+.pytest_cache
+coverage
+log
+docker-compose.ollama.yml

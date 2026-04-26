@@ -1,0 +1,51 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      WEB_API_PORT: 3000
+      MONGODB_URI: ${MONGODB_URI}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-timehole}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+      GATEWAY_PROXY_PORT: ${GATEWAY_PROXY_PORT:-8080}
+      GATEWAY_PROXY_HOST: ${GATEWAY_PROXY_HOST:-}
+      GATEWAY_PROXY_BASE_URL: ${GATEWAY_PROXY_BASE_URL:-}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      MONGODB_URI: ${MONGODB_URI}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-timehole}
+      DNS_PORT: ${INTERNAL_DNS_PORT:-53}
+      PROXY_PORT: ${GATEWAY_PROXY_PORT:-8080}
+      PROXY_LISTEN_HOST: 0.0.0.0
+      PROXY_ENABLE_HTTPS_MITM: ${PROXY_ENABLE_HTTPS_MITM:-true}
+      PROXY_ENABLE_GEMMA_CLASSIFIER: ${PROXY_ENABLE_GEMMA_CLASSIFIER:-true}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMMA_API_URL: ${GEMMA_API_URL:-https://generativelanguage.googleapis.com/v1beta}
+      GEMMA_MODEL: ${GEMMA_MODEL:-gemma-3-27b-it}
+      GEMMA_TIMEOUT_SECONDS: ${GEMMA_TIMEOUT_SECONDS:-3}
+      GEMMA_TEMPERATURE: ${GEMMA_TEMPERATURE:-0}
+      GEMMA_TOP_P: ${GEMMA_TOP_P:-0}
+      GEMMA_TOP_K: ${GEMMA_TOP_K:-1}
+      GEMMA_RATE_LIMIT_CALLS: ${GEMMA_RATE_LIMIT_CALLS:-20}
+      GEMMA_RATE_LIMIT_WINDOW_SECONDS: ${GEMMA_RATE_LIMIT_WINDOW_SECONDS:-60}
+      CLASSIFIER_CACHE_VERSION: ${CLASSIFIER_CACHE_VERSION:-remote-gemma-v2-lenient-platforms}
+      PROXY_CERTS_DIR: /data/certs
+    ports:
+      - "${GATEWAY_PROXY_PORT:-8080}:8080"
+      - "${DNS_PORT:-5354}:53/tcp"
+      - "${DNS_PORT:-5354}:53/udp"
+    volumes:
+      - gateway-certs:/data/certs
+
+volumes:
+  gateway-certs:

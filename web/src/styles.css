@@ -59,6 +59,27 @@ textarea {
   padding: 28px;
 }
 
+.auth-card > :first-child {
+  padding: 28px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(165, 180, 252, 0.35), transparent 45%),
+    linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(244, 63, 94, 0.08));
+  border: 1px solid var(--line);
+}
+
+.auth-form {
+  padding: 8px 0;
+}
+
+.auth-card .eyebrow {
+  color: var(--accent-strong);
+}
+
+.auth-card .secondary-button {
+  background: rgba(255, 255, 255, 0.75);
+}
+
 .auth-form,
 .panel,
 .side-panel,

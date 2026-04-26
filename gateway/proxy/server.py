@@ -215,11 +215,29 @@ def build_block_page(target_url: str, reason: str) -> bytes:
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Back On Task</title>
     <style>
+      :root {{
+        --bg: #f0f4ff;
+        --panel: rgba(255, 255, 255, 0.84);
+        --ink: #1e1b4b;
+        --muted: #4338ca;
+        --line: rgba(99, 102, 241, 0.2);
+        --accent: #6366f1;
+        --accent-strong: #4f46e5;
+        --accent-soft: rgba(99, 102, 241, 0.1);
+        --danger: #f43f5e;
+        --shadow: 0 12px 30px rgba(79, 70, 229, 0.15);
+      }}
+      * {{
+        box-sizing: border-box;
+      }}
       body {{
         margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: linear-gradient(180deg, #fff8ef 0%, #f5ead8 100%);
-        color: #1c241f;
+        font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(99, 102, 241, 0.15), transparent 40%),
+          radial-gradient(circle at bottom left, rgba(244, 63, 94, 0.1), transparent 40%),
+          linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 50%, #dbeafe 100%);
+        color: var(--ink);
         display: grid;
         place-items: center;
         min-height: 100vh;
@@ -227,38 +245,73 @@ def build_block_page(target_url: str, reason: str) -> bytes:
       }}
       .card {{
         max-width: 720px;
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid rgba(28, 36, 31, 0.12);
-        border-radius: 24px;
-        padding: 28px;
-        box-shadow: 0 18px 50px rgba(53, 36, 18, 0.1);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        padding: 30px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }}
+      .eyebrow {{
+        margin: 0 0 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-size: 0.78rem;
+        color: var(--accent);
       }}
       h1 {{
-        margin: 0 0 12px;
-        font-size: 2rem;
+        margin: 0 0 14px;
+        font-size: clamp(2.1rem, 4vw, 3.4rem);
+        line-height: 0.95;
       }}
       p {{
         line-height: 1.65;
-        margin: 0 0 12px;
+        margin: 0 0 14px;
+        color: var(--muted);
+      }}
+      strong {{
+        color: var(--ink);
+      }}
+      .reason {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(244, 63, 94, 0.12);
+        color: var(--danger);
+        font-weight: 700;
       }}
       code {{
         display: block;
-        padding: 12px;
-        border-radius: 14px;
-        background: #10231c;
-        color: #d9f4e8;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(99, 102, 241, 0.08);
+        color: var(--ink);
         overflow-wrap: anywhere;
+        margin-bottom: 16px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }}
+      .tip {{
+        margin-top: 18px;
+        padding: 16px 18px;
+        border-radius: 20px;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(165, 180, 252, 0.2));
+        border: 1px solid var(--line);
       }}
     </style>
   </head>
   <body>
     <main class="card">
+      <p class="eyebrow">TimeHole</p>
       <h1>Get back on task</h1>
       <p>This page was blocked by the TimeHole web proxy because it looks off-target for your active focus session.</p>
-      <p>Decision: <strong>{reason}</strong></p>
+      <p>Decision: <span class="reason">{reason}</span></p>
       <p>Blocked URL:</p>
       <code>{target_url}</code>
-      <p>If you expected this to be allowed, check whether your proxy rules, focus settings, or current study mode need to be adjusted.</p>
+      <p class="tip">If you expected this to be allowed, check your proxy rules, focus settings, or current focus mode.</p>
     </main>
   </body>
 </html>"""

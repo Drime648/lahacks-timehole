@@ -18,7 +18,7 @@ from gateway.dns.filtering import evaluate_policy_decision
 from gateway.store import MongoGatewayStore
 
 LISTEN_HOST: Final[str] = os.environ.get("DNS_LISTEN_HOST", "0.0.0.0")
-LISTEN_PORT: Final[int] = int(os.environ.get("DNS_PORT", "5354"))
+LISTEN_PORT: Final[int] = int(os.environ.get("DNS_PORT", "53"))
 UPSTREAM_DNS_HOST: Final[str] = os.environ.get("UPSTREAM_DNS_HOST", "1.1.1.1")
 UPSTREAM_DNS_PORT: Final[int] = int(os.environ.get("UPSTREAM_DNS_PORT", "53"))
 UPSTREAM_TIMEOUT_SECONDS: Final[float] = float(
@@ -142,18 +142,22 @@ def serve() -> None:
                     query_name,
                     config_version=config_version,
                 )
-                username = str(user.get("username")) if user and user.get("username") else None
+                username = (
+                    str(user.get("username")) if user and user.get("username") else None
+                )
                 policy = evaluate_policy_decision(
                     source_ip=source_ip,
                     query_name=query_name,
                     user=user,
                     cached_blocked=cached_blocked,
                     source_blacklist_loader=store.get_blacklist_for_source_ip,
-                    cache_decision=lambda ip, query, blocked: decision_cache.cache_decision(
-                        ip,
-                        query,
-                        blocked,
-                        config_version=config_version,
+                    cache_decision=lambda ip, query, blocked: (
+                        decision_cache.cache_decision(
+                            ip,
+                            query,
+                            blocked,
+                            config_version=config_version,
+                        )
                     ),
                 )
                 blocked = policy.blocked
@@ -204,7 +208,9 @@ def serve() -> None:
                     try:
                         response = relay_to_upstream(data)
                         upstream_latency_ms = round((monotonic() - start) * 1000, 2)
-                        response_code, answer_count, answers = summarize_response(response)
+                        response_code, answer_count, answers = summarize_response(
+                            response
+                        )
                         error = None
                     except Exception as relay_error:
                         upstream_latency_ms = round((monotonic() - start) * 1000, 2)

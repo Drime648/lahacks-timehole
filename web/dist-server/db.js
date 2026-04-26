@@ -18,6 +18,7 @@ export async function initDb() {
     }
     await usersCollection().createIndex({ username: 1 }, { unique: true });
     await dnsLogsCollection().createIndex({ sourceIp: 1, createdAt: -1 });
+    await proxyLogsCollection().createIndex({ sourceIp: 1, createdAt: -1 });
     initialized = true;
 }
 export function usersCollection() {
@@ -25,4 +26,7 @@ export function usersCollection() {
 }
 export function dnsLogsCollection() {
     return client.db(dbName).collection("dns_logs");
+}
+export function proxyLogsCollection() {
+    return client.db(dbName).collection("proxy_logs");
 }

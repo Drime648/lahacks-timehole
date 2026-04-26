@@ -287,50 +287,52 @@ function ScheduleEditor({
           </button>
         </div>
 
-        <div className="schedule-calendar">
-          <div className="schedule-time-column">
-            <div className="calendar-corner" />
-            {Array.from({ length: SLOT_COUNT }, (_, slot) => (
-              <div className="time-label" key={slot}>
-                {slot % 2 === 0 ? slotToTime(slot) : ""}
+        <div className="schedule-calendar-frame">
+          <div className="schedule-calendar">
+            <div className="schedule-time-column">
+              <div className="calendar-corner" />
+              {Array.from({ length: SLOT_COUNT }, (_, slot) => (
+                <div className="time-label" key={slot}>
+                  {slot % 2 === 0 ? slotToTime(slot) : ""}
+                </div>
+              ))}
+            </div>
+
+            {dayLabels.map((day) => (
+              <div className="schedule-day-column" key={day.value}>
+                <div className="calendar-day-heading">
+                  <strong>{day.label}</strong>
+                </div>
+
+                {Array.from({ length: SLOT_COUNT }, (_, slot) => {
+                  const occupied = occupiedCells[day.value][slot];
+                  const inPreview = previewKeys.has(`${day.value}-${slot}`);
+                  const previewMode = dragState?.mode;
+
+                  return (
+                    <button
+                      key={`${day.value}-${slot}`}
+                      type="button"
+                      className={`calendar-slot ${occupied ? "occupied" : ""} ${inPreview ? "preview" : ""} ${previewMode === "remove" && inPreview ? "preview-remove" : ""}`}
+                      onMouseDown={() =>
+                        setDragState({
+                          day: day.value,
+                          startSlot: slot,
+                          currentSlot: slot,
+                          mode: occupied ? "remove" : "add"
+                        })
+                      }
+                      onMouseEnter={() => {
+                        if (dragState && dragState.day === day.value) {
+                          setDragState({ ...dragState, currentSlot: slot });
+                        }
+                      }}
+                    />
+                  );
+                })}
               </div>
             ))}
           </div>
-
-          {dayLabels.map((day) => (
-            <div className="schedule-day-column" key={day.value}>
-              <div className="calendar-day-heading">
-                <strong>{day.label}</strong>
-              </div>
-
-              {Array.from({ length: SLOT_COUNT }, (_, slot) => {
-                const occupied = occupiedCells[day.value][slot];
-                const inPreview = previewKeys.has(`${day.value}-${slot}`);
-                const previewMode = dragState?.mode;
-
-                return (
-                  <button
-                    key={`${day.value}-${slot}`}
-                    type="button"
-                    className={`calendar-slot ${occupied ? "occupied" : ""} ${inPreview ? "preview" : ""} ${previewMode === "remove" && inPreview ? "preview-remove" : ""}`}
-                    onMouseDown={() =>
-                      setDragState({
-                        day: day.value,
-                        startSlot: slot,
-                        currentSlot: slot,
-                        mode: occupied ? "remove" : "add"
-                      })
-                    }
-                    onMouseEnter={() => {
-                      if (dragState && dragState.day === day.value) {
-                        setDragState({ ...dragState, currentSlot: slot });
-                      }
-                    }}
-                  />
-                );
-              })}
-            </div>
-          ))}
         </div>
 
         <div className="schedule-legend">
@@ -376,7 +378,7 @@ function FocusEditor({
         What do you want to focus on, and what do you want to stay away from?
         <textarea
           className="focus-summary-input"
-          rows={8}
+          rows={6}
           value={config.focusSummary}
           onChange={(event) => setConfig({ ...config, focusSummary: event.target.value })}
           placeholder="I want to focus on coursework, project work, and documentation. I want to stay away from social feeds, gaming, and casual browsing during work blocks..."

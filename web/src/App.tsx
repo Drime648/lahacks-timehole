@@ -747,6 +747,7 @@ function DashboardHome({
         <div className="focus-mode-banner">
           <div>
             <h3>Manual Focus Mode</h3>
+            <p>{focusModeEnabled ? "Focus mode is enabled, your activity will be filtered until disabled." : "Focus mode is disabled, so filtering follows your calendar."}</p>
           </div>
           <button type="button" onClick={() => void onToggleFocusMode()} disabled={togglingFocusMode}>
             {togglingFocusMode
@@ -766,6 +767,7 @@ function DashboardHome({
       <div className="focus-mode-banner">
         <div>
           <h3>Manual Focus Mode</h3>
+          <p>{focusModeEnabled ? "Focus mode is enabled, your activity will be filtered until disabled." : "Focus mode is disabled, so filtering follows your calendar."}</p>
         </div>
         <button type="button" onClick={() => void onToggleFocusMode()} disabled={togglingFocusMode}>
           {togglingFocusMode

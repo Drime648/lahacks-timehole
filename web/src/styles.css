@@ -882,16 +882,15 @@ button[type="submit"] {
 .logs-view {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 16px;
-  flex: 1;
-  min-height: 0;
+  gap: 24px;
 }
 
 .logs-view .logs-panel {
   display: grid;
   grid-template-rows: auto 1fr;
-  min-height: 0;
+  max-height: 45vh;
+  min-height: 320px;
+  overflow: hidden;
 }
 
 .focus-mode-banner {

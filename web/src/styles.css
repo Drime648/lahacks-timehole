@@ -888,7 +888,7 @@ button[type="submit"] {
 .logs-view .logs-panel {
   display: grid;
   grid-template-rows: auto 1fr;
-  max-height: 45vh;
+  max-height: 40vh;
   min-height: 320px;
   overflow: hidden;
 }

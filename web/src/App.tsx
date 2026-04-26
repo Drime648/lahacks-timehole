@@ -583,6 +583,7 @@ function SettingsSection({
 
 function LogsTable({
   title,
+  description,
   logs,
   sortField,
   sortOrder,
@@ -592,6 +593,7 @@ function LogsTable({
   idPrefix
 }: {
   title: string;
+  description: string;
   logs: DnsDashboardLog[];
   sortField: string;
   sortOrder: "asc" | "desc";
@@ -616,6 +618,7 @@ function LogsTable({
     <div className="dashboard-panel logs-panel">
       <div className="panel-copy">
         <h3>{title}</h3>
+        <p>{description}</p>
       </div>
       {logs.length === 0 ? (
         <div className="empty-state">No recent log entries for this category yet.</div>
@@ -708,6 +711,7 @@ function LogsView({
     <div className="logs-view">
       <LogsTable
         title="DNS Traffic Logs"
+        description="Low-level network requests captured by the DNS relay."
         logs={dashboard.recentDnsLogs}
         sortField={dnsSortField}
         sortOrder={dnsSortOrder}
@@ -718,6 +722,7 @@ function LogsView({
       />
       <LogsTable
         title="Web Proxy Logs"
+        description="HTTP and HTTPS application-layer traffic inspected by the gateway."
         logs={dashboard.recentProxyLogs}
         sortField={proxySortField}
         sortOrder={proxySortOrder}

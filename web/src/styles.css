@@ -23,7 +23,8 @@ body {
     radial-gradient(circle at top right, rgba(99, 102, 241, 0.15), transparent 40%),
     radial-gradient(circle at bottom left, rgba(244, 63, 94, 0.1), transparent 40%),
     linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 50%, #dbeafe 100%);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 button,
@@ -36,7 +37,10 @@ textarea {
 .app-shell {
   width: min(1220px, calc(100vw - 32px));
   margin: 0 auto;
-  padding: 24px 0 56px;
+  padding: 24px 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .auth-card,
@@ -75,11 +79,15 @@ textarea {
 
 .tabs-shell {
   grid-template-columns: 280px 1fr;
+  flex: 1;
+  min-height: 0;
 }
 
 .wizard-shell {
   grid-template-columns: 320px 1fr;
   gap: 20px;
+  flex: 1;
+  min-height: 0;
 }
 
 .hero {
@@ -100,6 +108,7 @@ textarea {
   padding: 18px;
   align-content: start;
   gap: 8px;
+  overflow-y: auto;
 }
 
 .tab-button {
@@ -186,10 +195,13 @@ textarea {
 
 .tab-panel {
   gap: 12px;
+  height: 100%;
+  overflow-y: auto;
 }
 
 .logs-tab-panel {
-  min-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
 }
 
 .panel-header {
@@ -615,10 +627,19 @@ button[type="submit"] {
   padding: 0;
   overflow: hidden;
   min-height: 0;
+  gap: 0;
 }
 
 .logs-panel .panel-copy {
-  padding: 20px 24px 14px;
+  padding: 16px 20px 12px;
+}
+
+.logs-panel .panel-copy h3 {
+  margin: 0;
+}
+
+.logs-panel .panel-copy p {
+  margin: 4px 0 0;
 }
 
 .table-container {
@@ -626,18 +647,20 @@ button[type="submit"] {
   overflow-y: auto;
   border-top: 1px solid var(--line);
   min-height: 0;
+  isolation: isolate;
 }
 
 .logs-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.9rem;
   text-align: left;
 }
 
 .logs-table th {
   padding: 14px 16px;
-  background: rgba(99, 102, 241, 0.05);
+  background-color: #ffffff !important;
   color: var(--muted);
   font-weight: 600;
   text-transform: uppercase;
@@ -647,10 +670,13 @@ button[type="submit"] {
   white-space: nowrap;
   user-select: none;
   border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .logs-table th:hover {
-  background: rgba(99, 102, 241, 0.1);
+  background-color: #f0f1fe !important;
   color: var(--accent-strong);
 }
 
@@ -669,11 +695,11 @@ button[type="submit"] {
   background: rgba(255, 255, 255, 0.6);
 }
 
-.logs-table tr.blocked {
+.logs-table tr.blocked td:first-child {
   border-left: 4px solid var(--danger);
 }
 
-.logs-table tr.allowed {
+.logs-table tr.allowed td:first-child {
   border-left: 4px solid var(--accent);
 }
 
@@ -853,17 +879,16 @@ button[type="submit"] {
 .logs-view {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-template-rows: 1fr 1fr;
   gap: 16px;
-  height: 100%;
-  min-height: calc(100vh - 170px);
-  max-height: calc(100vh - 170px);
+  flex: 1;
+  min-height: 0;
 }
 
 .logs-view .logs-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 100%;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
 }
 
 .focus-mode-banner {
@@ -908,33 +933,25 @@ button[type="submit"] {
   font-size: 0.92rem;
 }
 
-.logs-panel {
-  padding: 0;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.logs-panel .panel-copy {
-  padding: 20px 24px 14px;
-}
-
 .table-container {
   overflow-x: auto;
   overflow-y: auto;
   border-top: 1px solid var(--line);
   min-height: 0;
+  isolation: isolate;
 }
 
 .logs-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.96rem;
   text-align: left;
 }
 
 .logs-table th {
   padding: 16px 18px;
-  background: rgba(99, 102, 241, 0.05);
+  background-color: #ffffff !important;
   color: var(--muted);
   font-weight: 600;
   text-transform: uppercase;
@@ -946,11 +963,11 @@ button[type="submit"] {
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20;
 }
 
 .logs-table th:hover {
-  background: rgba(99, 102, 241, 0.1);
+  background-color: #f0f1fe !important;
   color: var(--accent-strong);
 }
 
@@ -969,11 +986,11 @@ button[type="submit"] {
   background: rgba(255, 255, 255, 0.6);
 }
 
-.logs-table tr.blocked {
+.logs-table tr.blocked td:first-child {
   border-left: 4px solid var(--danger);
 }
 
-.logs-table tr.allowed {
+.logs-table tr.allowed td:first-child {
   border-left: 4px solid var(--accent);
 }
 

@@ -4,6 +4,7 @@ import logging
 import os
 import socket
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import monotonic
 from typing import Final
@@ -27,6 +28,7 @@ UPSTREAM_TIMEOUT_SECONDS: Final[float] = float(
 MONGODB_URI: Final[str | None] = os.environ.get("MONGODB_URI")
 MONGODB_DB_NAME: Final[str] = os.environ.get("MONGODB_DB_NAME", "timehole")
 CACHE_TTL_SECONDS: Final[float] = float(os.environ.get("CACHE_TTL_SECONDS", "300"))
+MAX_WORKERS: Final[int] = int(os.environ.get("DNS_MAX_WORKERS", "10"))
 
 store = MongoGatewayStore.from_env()
 decision_cache = DecisionCache(ttl_seconds=CACHE_TTL_SECONDS)
@@ -107,6 +109,135 @@ def relay_to_upstream(data: bytes) -> bytes:
         return response
 
 
+def handle_dns_request(
+    data: bytes, client_address: tuple[str, int], server_socket: socket.socket
+) -> None:
+    try:
+        request, query_name, qtype = extract_query_name(data)
+        source_ip = client_address[0]
+
+        if not query_name:
+            logging.warning("Received DNS query without a question section")
+            return
+
+        # Bypass store for MongoDB Atlas hostnames to prevent deadlocks
+        # if the system DNS is set to this relay.
+        is_mongodb_query = "mongodb.net" in query_name
+        if is_mongodb_query:
+            logging.info("Bypassing policy check for MongoDB host: %s", query_name)
+            try:
+                response = relay_to_upstream(data)
+                server_socket.sendto(response, client_address)
+                return
+            except Exception as e:
+                logging.error("Failed to relay MongoDB query %s: %s", query_name, e)
+                response = build_servfail_response(request)
+                server_socket.sendto(response, client_address)
+                return
+
+        user = store.get_user_context(source_ip)
+        config_version = get_focus_config_version(user)
+        cached_blocked = decision_cache.get_cached_decision(
+            source_ip,
+            query_name,
+            config_version=config_version,
+        )
+        username = (
+            str(user.get("username")) if user and user.get("username") else None
+        )
+        policy = evaluate_policy_decision(
+            source_ip=source_ip,
+            query_name=query_name,
+            user=user,
+            cached_blocked=cached_blocked,
+            source_blacklist_loader=store.get_blacklist_for_source_ip,
+            cache_decision=lambda ip, query, blocked: decision_cache.cache_decision(
+                ip,
+                query,
+                blocked,
+                config_version=config_version,
+            ),
+        )
+        blocked = policy.blocked
+        cache_hit = policy.cache_hit
+        decision_reason = policy.decision_reason
+        blacklist_size = policy.blacklist_size
+
+        if decision_reason == "focus_inactive":
+            logging.info(
+                "Focus inactive for %s from source ip %s; bypassing blacklist",
+                query_name,
+                source_ip,
+            )
+        elif cached_blocked is not None:
+            logging.info(
+                "Cache hit for %s from source ip %s: %s",
+                query_name,
+                source_ip,
+                "blocked" if blocked else "allowed",
+            )
+        else:
+            logging.info(
+                "Cache miss for %s from source ip %s; evaluated against %s blacklist entries",
+                query_name,
+                source_ip,
+                blacklist_size,
+            )
+
+        if blocked:
+            logging.info(
+                "Blocked query for %s from source ip %s",
+                query_name,
+                source_ip,
+            )
+            response = build_blackhole_response(request, query_name, qtype)
+            response_code = "NOERROR"
+            answer_count = 1
+            answers = ["::" if qtype == "AAAA" else "0.0.0.0"]
+            upstream_latency_ms = None
+            error = None
+        else:
+            logging.info(
+                "Relaying query for %s from source ip %s",
+                query_name,
+                source_ip,
+            )
+            start = monotonic()
+            try:
+                response = relay_to_upstream(data)
+                upstream_latency_ms = round((monotonic() - start) * 1000, 2)
+                response_code, answer_count, answers = summarize_response(response)
+                error = None
+            except Exception as relay_error:
+                upstream_latency_ms = round((monotonic() - start) * 1000, 2)
+                response = build_servfail_response(request)
+                response_code = "SERVFAIL"
+                answer_count = 0
+                answers = []
+                error = str(relay_error)
+                decision_reason = "upstream_error"
+
+        store.log_dns_event(
+            source_ip=source_ip,
+            username=username,
+            user_matched=user is not None,
+            query_name=query_name,
+            qtype=qtype,
+            blocked=blocked,
+            cache_hit=cache_hit,
+            decision_reason=decision_reason,
+            blacklist_size=blacklist_size,
+            response_code=response_code,
+            answer_count=answer_count,
+            answers=answers,
+            upstream_latency_ms=upstream_latency_ms,
+            error=error,
+        )
+        server_socket.sendto(response, client_address)
+    except Exception:
+        logging.exception("Failed to process DNS request from %s", client_address)
+
+
 def serve() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -116,126 +247,28 @@ def serve() -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
         server.bind((LISTEN_HOST, LISTEN_PORT))
         logging.info(
-            "DNS relay listening on %s:%s and forwarding to %s:%s using db=%s",
+            "DNS relay listening on %s:%s and forwarding to %s:%s using db=%s (workers=%d)",
             LISTEN_HOST,
             LISTEN_PORT,
             UPSTREAM_DNS_HOST,
             UPSTREAM_DNS_PORT,
             MONGODB_DB_NAME,
+            MAX_WORKERS,
         )
 
-        while True:
-            data, client_address = server.recvfrom(4096)
-
-            try:
-                request, query_name, qtype = extract_query_name(data)
-                source_ip = client_address[0]
-
-                if not query_name:
-                    logging.warning("Received DNS query without a question section")
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            while True:
+                try:
+                    data, client_address = server.recvfrom(4096)
+                except ConnectionResetError:
+                    # On Windows, a 10054 error can be raised on a UDP socket if a 
+                    # previous sendto failed (e.g., ICMP port unreachable).
+                    continue
+                except Exception:
+                    logging.exception("Failed to receive DNS packet")
                     continue
 
-                user = store.get_user_context(source_ip)
-                config_version = get_focus_config_version(user)
-                cached_blocked = decision_cache.get_cached_decision(
-                    source_ip,
-                    query_name,
-                    config_version=config_version,
-                )
-                username = str(user.get("username")) if user and user.get("username") else None
-                policy = evaluate_policy_decision(
-                    source_ip=source_ip,
-                    query_name=query_name,
-                    user=user,
-                    cached_blocked=cached_blocked,
-                    source_blacklist_loader=store.get_blacklist_for_source_ip,
-                    cache_decision=lambda ip, query, blocked: decision_cache.cache_decision(
-                        ip,
-                        query,
-                        blocked,
-                        config_version=config_version,
-                    ),
-                )
-                blocked = policy.blocked
-                cache_hit = policy.cache_hit
-                decision_reason = policy.decision_reason
-                blacklist_size = policy.blacklist_size
-
-                if decision_reason == "focus_inactive":
-                    logging.info(
-                        "Focus inactive for %s from source ip %s; bypassing blacklist",
-                        query_name,
-                        source_ip,
-                    )
-                elif cached_blocked is not None:
-                    logging.info(
-                        "Cache hit for %s from source ip %s: %s",
-                        query_name,
-                        source_ip,
-                        "blocked" if blocked else "allowed",
-                    )
-                else:
-                    logging.info(
-                        "Cache miss for %s from source ip %s; evaluated against %s blacklist entries",
-                        query_name,
-                        source_ip,
-                        blacklist_size,
-                    )
-
-                if blocked:
-                    logging.info(
-                        "Blocked query for %s from source ip %s",
-                        query_name,
-                        source_ip,
-                    )
-                    response = build_blackhole_response(request, query_name, qtype)
-                    response_code = "NOERROR"
-                    answer_count = 1
-                    answers = ["::" if qtype == "AAAA" else "0.0.0.0"]
-                    upstream_latency_ms = None
-                    error = None
-                else:
-                    logging.info(
-                        "Relaying query for %s from source ip %s",
-                        query_name,
-                        source_ip,
-                    )
-                    start = monotonic()
-                    try:
-                        response = relay_to_upstream(data)
-                        upstream_latency_ms = round((monotonic() - start) * 1000, 2)
-                        response_code, answer_count, answers = summarize_response(response)
-                        error = None
-                    except Exception as relay_error:
-                        upstream_latency_ms = round((monotonic() - start) * 1000, 2)
-                        response = build_servfail_response(request)
-                        response_code = "SERVFAIL"
-                        answer_count = 0
-                        answers = []
-                        error = str(relay_error)
-                        decision_reason = "upstream_error"
-
-                store.log_dns_event(
-                    source_ip=source_ip,
-                    username=username,
-                    user_matched=user is not None,
-                    query_name=query_name,
-                    qtype=qtype,
-                    blocked=blocked,
-                    cache_hit=cache_hit,
-                    decision_reason=decision_reason,
-                    blacklist_size=blacklist_size,
-                    response_code=response_code,
-                    answer_count=answer_count,
-                    answers=answers,
-                    upstream_latency_ms=upstream_latency_ms,
-                    error=error,
-                )
-                server.sendto(response, client_address)
-            except Exception:
-                logging.exception(
-                    "Failed to process DNS request from %s", client_address
-                )
+                executor.submit(handle_dns_request, data, client_address, server)
 
 
 if __name__ == "__main__":

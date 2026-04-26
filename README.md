@@ -37,4 +37,14 @@ Distractions are engineered to be addictive. Timehole fights back by turning you
 - **Heuristic + AI Hybrid:** Combines the speed of rule-based matching with the intelligence of LLMs.
 
 ---
+
+## How to Install
+
+1. Set up application on server in your network - docker compose up --build -d
+2. Set up DNS Server - Go into WiFi settings, edit DNS server assignment, set to manual, turn on IPv4, set preferred DNS to the server
+3. Make an account on the web interface on port 3000.
+4. Go to the web proxy step and download the certificate.
+5. Go into browser settings and import the certificate.
+6. Go into browser settings and set proxy to point to the server on port 8080.
+
 *Developed for LAHacks 2026*

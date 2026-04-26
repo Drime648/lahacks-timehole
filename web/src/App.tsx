@@ -1090,7 +1090,7 @@ export function App() {
         <form className="wizard-shell" onSubmit={handleOnboardingNext}>
           <aside className="card wizard-steps">
             <div className="meta-box" style={{ border: "none", background: "none", padding: "0 0 12px 0" }}>
-              <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
+              <p className="eyebrow" style={{ margin: 0 }}>TimeHole</p>
             </div>
             {onboardingSteps.map((step, index) => (
               <div
@@ -1168,7 +1168,7 @@ export function App() {
         <form className="tabs-shell" onSubmit={handleSave}>
           <nav className="card tabs-nav" aria-label="Settings tabs">
             <div className="meta-box" style={{ border: "none", background: "none", padding: "0 0 12px 0" }}>
-              <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
+              <p className="eyebrow" style={{ margin: 0 }}>TimeHole</p>
             </div>
             {[{ id: "home", title: "Home" } as const, { id: "logs", title: "Logs" } as const, ...onboardingSteps].map((tab) => (
               <button
@@ -1190,7 +1190,7 @@ export function App() {
               <div className="panel-header">
                 <h2>
                   {activeTab === "home"
-                    ? "Home"
+                    ? "TimeHole"
                     : onboardingSteps.find((tab) => tab.id === activeTab)?.title}
                 </h2>
                 {activeTab === "proxy" ? (

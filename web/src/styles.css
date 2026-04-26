@@ -23,8 +23,7 @@ body {
     radial-gradient(circle at top right, rgba(99, 102, 241, 0.15), transparent 40%),
     radial-gradient(circle at bottom left, rgba(244, 63, 94, 0.1), transparent 40%),
     linear-gradient(135deg, #f0f4ff 0%, #e0e7ff 50%, #dbeafe 100%);
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
 }
 
 button,
@@ -38,7 +37,7 @@ textarea {
   width: min(1220px, calc(100vw - 32px));
   margin: 0 auto;
   padding: 24px 0;
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -195,8 +194,6 @@ textarea {
 
 .tab-panel {
   gap: 12px;
-  height: 100%;
-  overflow-y: auto;
 }
 
 .logs-tab-panel {

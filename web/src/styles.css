@@ -791,10 +791,6 @@ button[type="submit"] {
   -webkit-backdrop-filter: blur(10px);
 }
 
-.dashboard-grid > .dashboard-panel:first-child {
-  align-self: start;
-}
-
 .bar-row-meta,
 .log-row-meta {
   display: flex;

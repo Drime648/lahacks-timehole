@@ -277,7 +277,7 @@ app.get("/api/dns-dashboard", async (request, response) => {
     .aggregate<{ queryName: string; count: number }>([
       { $match: { ...sourceIpMatch, blocked: true } },
       { $group: { _id: "$queryName", count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
+      { $sort: { count: -1, _id: 1 } },
       { $limit: 5 },
       { $project: { _id: 0, queryName: "$_id", count: 1 } }
     ])

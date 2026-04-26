@@ -752,6 +752,7 @@ function DashboardHome({
         <div className="focus-mode-banner">
           <div>
             <h3>Manual Focus Mode</h3>
+            <p>{focusModeEnabled ? "Focus mode is enabled, your activity will be filtered until disabled." : "Focus mode is disabled, so filtering follows your calendar."}</p>
           </div>
           <button type="button" onClick={() => void onToggleFocusMode()} disabled={togglingFocusMode}>
             {togglingFocusMode
@@ -771,6 +772,7 @@ function DashboardHome({
       <div className="focus-mode-banner">
         <div>
           <h3>Manual Focus Mode</h3>
+          <p>{focusModeEnabled ? "Focus mode is enabled, your activity will be filtered until disabled." : "Focus mode is disabled, so filtering follows your calendar."}</p>
         </div>
         <button type="button" onClick={() => void onToggleFocusMode()} disabled={togglingFocusMode}>
           {togglingFocusMode
@@ -809,7 +811,7 @@ function DashboardHome({
             <div className="empty-state">No blocked DNS domains yet.</div>
           ) : (
             <div className="bars-list blocked-domains-list">
-              {dashboard.topBlockedDomains.map((entry) => (
+              {dashboard.topBlockedDomains.slice(0, 4).map((entry) => (
                 <div className="bar-row blocked-domain-row" key={entry.queryName}>
                   <div className="bar-row-meta">
                     <span>{entry.queryName}</span>
@@ -1095,7 +1097,7 @@ export function App() {
         <form className="wizard-shell" onSubmit={handleOnboardingNext}>
           <aside className="card wizard-steps">
             <div className="meta-box" style={{ border: "none", background: "none", padding: "0 0 12px 0" }}>
-              <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
+              <p className="eyebrow" style={{ margin: 0 }}>TimeHole</p>
             </div>
             {onboardingSteps.map((step, index) => (
               <div
@@ -1173,7 +1175,7 @@ export function App() {
         <form className="tabs-shell" onSubmit={handleSave}>
           <nav className="card tabs-nav" aria-label="Settings tabs">
             <div className="meta-box" style={{ border: "none", background: "none", padding: "0 0 12px 0" }}>
-              <p className="eyebrow" style={{ margin: 0 }}>{user.username}</p>
+              <p className="eyebrow" style={{ margin: 0 }}>TimeHole</p>
             </div>
             {[{ id: "home", title: "Home" } as const, { id: "logs", title: "Logs" } as const, ...onboardingSteps].map((tab) => (
               <button
@@ -1195,7 +1197,7 @@ export function App() {
               <div className="panel-header">
                 <h2>
                   {activeTab === "home"
-                    ? "Home"
+                    ? "TimeHole"
                     : onboardingSteps.find((tab) => tab.id === activeTab)?.title}
                 </h2>
                 {activeTab === "proxy" ? (

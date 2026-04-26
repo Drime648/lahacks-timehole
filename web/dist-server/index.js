@@ -5,7 +5,7 @@ import express from "express";
 import session from "express-session";
 import MongoStore from "connect-mongo";
 import { buildEffectiveBlacklist } from "./blacklists.js";
-import { dnsLogsCollection, initDb, usersCollection } from "./db.js";
+import { dnsLogsCollection, initDb, proxyLogsCollection, usersCollection } from "./db.js";
 import { getRequestIp, hashPassword, normalizeUsername, verifyPassword } from "./auth.js";
 const app = express();
 const port = Number(process.env.WEB_API_PORT || 4000);
@@ -50,6 +50,14 @@ function sanitizeUser(user) {
             blacklist: user.focusConfig.manualBlacklist
         }
     };
+}
+function candidateSourceIps(sourceIp) {
+    const normalized = sourceIp.trim();
+    const loopbackAliases = ["127.0.0.1", "::1", "0:0:0:0:0:0:0:1", "localhost"];
+    if (loopbackAliases.includes(normalized)) {
+        return loopbackAliases;
+    }
+    return [normalized];
 }
 async function requireUser(username) {
     if (!username) {
@@ -140,54 +148,104 @@ app.get("/api/dns-dashboard", async (request, response) => {
         return;
     }
     const sourceIp = user.focusConfig.sourceIp;
-    const totalQueries = await dnsLogsCollection().countDocuments({ sourceIp });
-    const blockedQueries = await dnsLogsCollection().countDocuments({
-        sourceIp,
+    const sourceIps = candidateSourceIps(sourceIp);
+    const sourceIpMatch = { sourceIp: { $in: sourceIps } };
+    const totalDnsQueries = await dnsLogsCollection().countDocuments(sourceIpMatch);
+    const blockedDnsQueries = await dnsLogsCollection().countDocuments({
+        ...sourceIpMatch,
         blocked: true
     });
-    const allowedQueries = await dnsLogsCollection().countDocuments({
-        sourceIp,
+    const allowedDnsQueries = await dnsLogsCollection().countDocuments({
+        ...sourceIpMatch,
         blocked: false
     });
-    const cacheHits = await dnsLogsCollection().countDocuments({
-        sourceIp,
+    const dnsCacheHits = await dnsLogsCollection().countDocuments({
+        ...sourceIpMatch,
         cacheHit: true
     });
-    const uniqueDomains = await dnsLogsCollection().distinct("queryName", { sourceIp });
-    const avgLatencyResult = await dnsLogsCollection()
+    const totalProxyRequests = await proxyLogsCollection().countDocuments(sourceIpMatch);
+    const blockedProxyRequests = await proxyLogsCollection().countDocuments({
+        ...sourceIpMatch,
+        blocked: true
+    });
+    const allowedProxyRequests = await proxyLogsCollection().countDocuments({
+        ...sourceIpMatch,
+        blocked: false
+    });
+    const proxyCacheHits = await proxyLogsCollection().countDocuments({
+        ...sourceIpMatch,
+        cacheHit: true
+    });
+    const uniqueDnsDomains = await dnsLogsCollection().distinct("queryName", sourceIpMatch);
+    const uniqueProxyHosts = await proxyLogsCollection().distinct("host", sourceIpMatch);
+    const uniqueDomains = new Set([...uniqueDnsDomains, ...uniqueProxyHosts]);
+    const totalQueries = totalDnsQueries + totalProxyRequests;
+    const blockedQueries = blockedDnsQueries + blockedProxyRequests;
+    const allowedQueries = allowedDnsQueries + allowedProxyRequests;
+    const cacheHits = dnsCacheHits + proxyCacheHits;
+    const dnsLatencyResult = await dnsLogsCollection()
         .aggregate([
         {
             $match: {
-                sourceIp,
+                ...sourceIpMatch,
                 upstreamLatencyMs: { $type: "number" }
             }
         },
         {
             $group: {
                 _id: null,
-                avgLatencyMs: { $avg: "$upstreamLatencyMs" }
+                count: { $sum: 1 },
+                totalLatencyMs: { $sum: "$upstreamLatencyMs" }
             }
         },
         {
             $project: {
                 _id: 0,
-                avgLatencyMs: { $round: ["$avgLatencyMs", 2] }
+                count: 1,
+                totalLatencyMs: 1
             }
         }
     ])
         .toArray();
+    const proxyLatencyResult = await proxyLogsCollection()
+        .aggregate([
+        {
+            $match: {
+                ...sourceIpMatch,
+                upstreamLatencyMs: { $type: "number" }
+            }
+        },
+        {
+            $group: {
+                _id: null,
+                count: { $sum: 1 },
+                totalLatencyMs: { $sum: "$upstreamLatencyMs" }
+            }
+        },
+        {
+            $project: {
+                _id: 0,
+                count: 1,
+                totalLatencyMs: 1
+            }
+        }
+    ])
+        .toArray();
+    const latencyCount = (dnsLatencyResult[0]?.count ?? 0) + (proxyLatencyResult[0]?.count ?? 0);
+    const latencyTotal = (dnsLatencyResult[0]?.totalLatencyMs ?? 0) + (proxyLatencyResult[0]?.totalLatencyMs ?? 0);
+    const avgLatencyMs = latencyCount === 0 ? null : Math.round((latencyTotal / latencyCount) * 100) / 100;
     const topBlockedDomains = await dnsLogsCollection()
         .aggregate([
-        { $match: { sourceIp, blocked: true } },
+        { $match: { ...sourceIpMatch, blocked: true } },
         { $group: { _id: "$queryName", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
+        { $sort: { count: -1, _id: 1 } },
         { $limit: 5 },
         { $project: { _id: 0, queryName: "$_id", count: 1 } }
     ])
         .toArray();
     const topQueriedDomains = await dnsLogsCollection()
         .aggregate([
-        { $match: { sourceIp } },
+        { $match: sourceIpMatch },
         { $group: { _id: "$queryName", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 8 },
@@ -196,7 +254,7 @@ app.get("/api/dns-dashboard", async (request, response) => {
         .toArray();
     const queryTypeBreakdown = await dnsLogsCollection()
         .aggregate([
-        { $match: { sourceIp } },
+        { $match: sourceIpMatch },
         { $group: { _id: "$queryType", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $project: { _id: 0, queryType: "$_id", count: 1 } }
@@ -204,7 +262,7 @@ app.get("/api/dns-dashboard", async (request, response) => {
         .toArray();
     const decisionBreakdown = await dnsLogsCollection()
         .aggregate([
-        { $match: { sourceIp } },
+        { $match: sourceIpMatch },
         {
             $group: {
                 _id: { $ifNull: ["$decisionReason", "unknown"] },
@@ -217,7 +275,7 @@ app.get("/api/dns-dashboard", async (request, response) => {
         .toArray();
     const recentActivity = await dnsLogsCollection()
         .aggregate([
-        { $match: { sourceIp } },
+        { $match: sourceIpMatch },
         {
             $addFields: {
                 createdAtDate: {
@@ -249,11 +307,32 @@ app.get("/api/dns-dashboard", async (request, response) => {
         { $project: { _id: 0, hour: "$_id", total: 1, blocked: 1 } }
     ])
         .toArray();
-    const recentLogs = await dnsLogsCollection()
-        .find({ sourceIp }, { projection: { _id: 0 } })
+    const recentDnsLogs = await dnsLogsCollection()
+        .find(sourceIpMatch, { projection: { _id: 0 } })
         .sort({ createdAt: -1 })
         .limit(50)
         .toArray();
+    const recentProxyLogsRaw = await proxyLogsCollection()
+        .find(sourceIpMatch, { projection: { _id: 0 } })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .toArray();
+    const recentProxyLogs = recentProxyLogsRaw.map((log) => ({
+        sourceIp: log.sourceIp,
+        username: log.username,
+        userMatched: log.userMatched,
+        queryName: log.targetUrl || log.host,
+        queryType: log.method,
+        blocked: log.blocked,
+        cacheHit: log.cacheHit,
+        decisionReason: log.decisionReason,
+        responseCode: log.statusCode == null ? null : String(log.statusCode),
+        answerCount: [log.host].filter(Boolean).length,
+        answers: [log.host].filter(Boolean),
+        upstreamLatencyMs: log.upstreamLatencyMs,
+        error: log.error,
+        createdAt: log.createdAt
+    }));
     response.json({
         sourceIp,
         totals: {
@@ -263,15 +342,16 @@ app.get("/api/dns-dashboard", async (request, response) => {
             cacheHits,
             cacheHitRate: totalQueries === 0 ? 0 : cacheHits / totalQueries,
             blockRate: totalQueries === 0 ? 0 : blockedQueries / totalQueries,
-            uniqueDomains: uniqueDomains.length,
-            avgLatencyMs: avgLatencyResult[0]?.avgLatencyMs ?? null
+            uniqueDomains: uniqueDomains.size,
+            avgLatencyMs
         },
         topQueriedDomains,
         topBlockedDomains,
         queryTypeBreakdown,
         decisionBreakdown,
         recentActivity,
-        recentLogs
+        recentDnsLogs,
+        recentProxyLogs
     });
 });
 app.get("/api/proxy-setup", async (request, response) => {
@@ -346,7 +426,7 @@ if (process.env.NODE_ENV === "production") {
     const __dirname = path.dirname(__filename);
     const clientDist = path.resolve(__dirname, "../dist");
     app.use(express.static(clientDist));
-    app.get("*", (_request, response) => {
+    app.get(/^\/(?!api(?:\/|$)).*/, (_request, response) => {
         response.sendFile(path.join(clientDist, "index.html"));
     });
 }

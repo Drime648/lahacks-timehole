@@ -470,13 +470,6 @@ function ProxySetupEditor({
 }) {
   return (
     <div className="panel-stack">
-      <div className="panel-copy">
-        <h3>Browser Proxy Setup</h3>
-        <p>
-          This step is optional, but it is what enables HTTP and HTTPS layer 7 inspection in the web proxy.
-        </p>
-      </div>
-
       {proxyLoading ? <div className="empty-state">Loading proxy setup instructions...</div> : null}
       {proxyError ? <div className="error-banner">{proxyError}</div> : null}
 
@@ -1189,9 +1182,6 @@ export function App() {
                     ? "TimeHole"
                     : onboardingSteps.find((tab) => tab.id === activeTab)?.title}
                 </h2>
-                {activeTab === "proxy" ? (
-                  <p>Download the root CA, enable the browser proxy, and turn on HTTPS layer 7 inspection.</p>
-                ) : null}
               </div>
             ) : null}
 

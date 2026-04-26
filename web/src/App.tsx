@@ -30,8 +30,7 @@ const dayLabels = [
 const onboardingSteps = [
   { id: "schedule", title: "Focus Calendar" },
   { id: "focus", title: "Focus Prompt" },
-  { id: "categories", title: "Categories" },
-  { id: "blacklist", title: "Manual Blacklist" },
+  { id: "blacklist", title: "Blacklist" },
   { id: "proxy", title: "Web Proxy" }
 ] as const;
 
@@ -411,17 +410,31 @@ function FocusEditor({
   );
 }
 
-function CategoriesEditor({
+function BlacklistEditor({
   config,
-  setConfig
+  setConfig,
+  blacklistDraft,
+  setBlacklistDraft
 }: {
   config: FocusConfig;
   setConfig: (config: FocusConfig) => void;
+  blacklistDraft: string;
+  setBlacklistDraft: (value: string) => void;
 }) {
   return (
     <div className="panel-stack">
+      <label>
+        Blacklist entries, one per line
+        <textarea
+          rows={8}
+          value={blacklistDraft}
+          onChange={(event) => setBlacklistDraft(event.target.value)}
+          placeholder={"tiktok\nreddit\nroblox"}
+        />
+      </label>
+
       <div className="panel-copy">
-        <h3>Choose categories to block during work time</h3>
+        <h3>Categories</h3>
       </div>
       <div className="category-grid">
         {categories.map((category) => (
@@ -442,28 +455,6 @@ function CategoriesEditor({
           </label>
         ))}
       </div>
-    </div>
-  );
-}
-
-function BlacklistEditor({
-  blacklistDraft,
-  setBlacklistDraft
-}: {
-  blacklistDraft: string;
-  setBlacklistDraft: (value: string) => void;
-}) {
-  return (
-    <div className="panel-stack">
-      <label>
-        Blacklist entries, one per line
-        <textarea
-          rows={8}
-          value={blacklistDraft}
-          onChange={(event) => setBlacklistDraft(event.target.value)}
-          placeholder={"tiktok\nreddit\nroblox"}
-        />
-      </label>
     </div>
   );
 }
@@ -561,10 +552,6 @@ function SettingsSection({
     return <FocusEditor config={config} setConfig={setConfig} />;
   }
 
-  if (tab === "categories") {
-    return <CategoriesEditor config={config} setConfig={setConfig} />;
-  }
-
   if (tab === "proxy") {
     return (
       <ProxySetupEditor
@@ -577,6 +564,8 @@ function SettingsSection({
 
   return (
     <BlacklistEditor
+      config={config}
+      setConfig={setConfig}
       blacklistDraft={blacklistDraft}
       setBlacklistDraft={setBlacklistDraft}
     />
@@ -1126,10 +1115,8 @@ export function App() {
                   "First, assign the weekly work blocks when focus mode should be active."}
                 {currentStep.id === "focus" &&
                   "Next, explain what you want to focus on and what you want to stay away from."}
-                {currentStep.id === "categories" &&
-                  "Now choose the categories that should be blocked during those work blocks."}
                 {currentStep.id === "blacklist" &&
-                  "Finally, add any manual blacklist entries for sites you always want blocked."}
+                  "Now choose blocked categories and add any manual blacklist entries."}
                 {currentStep.id === "proxy" &&
                   "Optionally finish by enabling browser proxying and installing the TimeHole root certificate for HTTPS inspection."}
               </p>

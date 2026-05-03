@@ -21,6 +21,7 @@ Distractions are engineered to be addictive. Timehole fights back by turning you
     - **dnslib:** High-performance DNS packet handling.
     - **Cryptography:** TLS/SSL certificate management for HTTPS inspection.
 - **React:** Modern, responsive interface for configuration and dashboards.
+- **Express.js:** Robust web backend for authentication, session management, and API endpoints.
 
 ## Architecture
 
